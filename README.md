@@ -4,6 +4,9 @@ Raccolta di strumenti web statici, pubblicati con GitHub Pages.
 
 ## Strumenti
 
+I due strumenti qui sotto lavorano in coppia: **Parziali** segna i tempi durante la prova ed esporta un file `.md`; **Taglia la prova** usa quel file per ritagliare la registrazione in brani.
+
+- **[Parziali della prova](parziali/)** — timer da usare durante la prova: segni l'inizio e la fine di ogni brano e alla fine esporti il file dei parziali (`.md`) con i tempi. Lo stato resta salvato nel browser (`localStorage`), così la pagina si può chiudere e riaprire senza perdere i segni.
 - **[Taglia la prova in brani](taglia-prova/)** — carica una registrazione MP3 e il file dei parziali (`.md`) e taglia l'audio in brani. L'elaborazione avviene interamente nel browser, sul dispositivo: nessun file viene caricato su server.
 
 ## Note tecniche
