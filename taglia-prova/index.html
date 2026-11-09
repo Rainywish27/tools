@@ -354,13 +354,13 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
   <details class="regola">
     <summary>Regolazioni dei tagli</summary>
     <div class="campi">
-      <label>Margine prima e dopo (secondi)
+      <label>Margine d’ascolto in anteprima (secondi)
         <input id="rMargine" type="number" inputmode="decimal" min="0" max="60" step="1" value="5">
       </label>
       <label>Sposta tutti i tagli (secondi)
         <input id="rSposta" type="number" inputmode="decimal" min="-120" max="120" step="0.5" value="0">
       </label>
-      <p class="nota">Il margine allarga ogni taglio per assorbire lo scarto tra registratore e cronometro. Se i brani risultano tutti in anticipo o in ritardo, sposta tutti i tagli: un valore positivo li fa partire più tardi.</p>
+      <p class="nota">Il margine allarga solo l’ascolto in anteprima, per sentire l’attacco e la coda di ogni brano: le tracce nello ZIP vengono tagliate esattamente ai tempi indicati nell’editing. Se i brani risultano tutti in anticipo o in ritardo, usa «Sposta tutti i tagli»: quello invece sposta davvero i tagli, e un valore positivo li fa partire più tardi.</p>
     </div>
   </details>
 
@@ -676,8 +676,12 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
           effE = dur;
         }
         if (effE - s < 30) avvisa('Il brano dura solo ' + fmtDur(effE - s) + ': controlla inizio e fine.');
-        a.cutS = Math.max(0, s - mar);
-        a.cutE = Math.min(dur, effE + mar);
+        // Taglio esatto per l'export: usa i tempi indicati nell'editing (più lo spostamento), senza margine.
+        a.cutS = Math.max(0, s);
+        a.cutE = Math.min(dur, effE);
+        // Finestra d'ascolto in anteprima: allargata dal margine, comoda per sentire attacco e coda.
+        a.playS = Math.max(0, s - mar);
+        a.playE = Math.min(dur, effE + mar);
         var f0 = Math.max(0, Math.min(S.info.frames - 1, Math.floor(a.cutS * S.info.sr / S.info.spf)));
         var f1 = Math.max(f0 + 1, Math.min(S.info.frames, Math.ceil(a.cutE * S.info.sr / S.info.spf)));
         a.f0 = f0; a.f1 = f1;
@@ -880,7 +884,7 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
   }
   function anteprima(r) {
     if (anteprimaId === r.id && !audio.paused) { audio.pause(); return; }
-    suona(r.a.cutS, r.a.cutE, r.id);
+    suona(r.a.playS, r.a.playE, r.id);
   }
   function aggiornaPlay() {
     var in_corso = !audio.paused;
