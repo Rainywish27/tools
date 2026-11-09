@@ -1,551 +1,6 @@
 <!DOCTYPE html>
 <!-- saved from url=(0012)about:srcdoc -->
 <html lang="it"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-    <script>
-      (function() {
-        // Capture host references before any artifact code runs: Window.parent
-        // is [Replaceable] (a top-level `var parent` in artifact code would
-        // replace the accessor with a data property), and a top-level
-        // `const crypto` would shadow the global — either would otherwise
-        // silently break the bridge for artifacts that worked before.
-        const realParent = window.parent;
-        const cryptoObj = window.crypto;
-        const RealURL = URL;
-        const realDecodeURIComponent = decodeURIComponent;
-        const RealTextEncoder = TextEncoder;
-        const realAtob = atob;
-        // html-to-image is only used by takeScreenshot: fetched on first use, not as a
-        // parser-blocking tag. Native fetch, captured before the proxy override below.
-        const realFetch = typeof window.fetch === 'function' ? window.fetch.bind(window) : null;
-        const HTML_TO_IMAGE_SRC = "https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.13/html-to-image.min.js";
-        const HTML_TO_IMAGE_INTEGRITY = "sha512-iZ2ORl595Wx6miw+GuadDet4WQbdSWS3JLMoNfY8cRGoEFy6oT3G9IbcrBeL6AfkgpA51ETt/faX6yLV+/gFJg==";
-        let htmlToImageLoad = null;
-        const loadHtmlToImage = () => {
-          if (!htmlToImageLoad) {
-            htmlToImageLoad = (realFetch
-              ? realFetch(HTML_TO_IMAGE_SRC, { integrity: HTML_TO_IMAGE_INTEGRITY, credentials: 'omit', referrerPolicy: 'no-referrer' })
-              : Promise.reject(new Error('fetch unavailable'))
-            )
-              .then((res) => {
-                if (!res.ok) throw new Error('html-to-image failed to load (' + res.status + ')');
-                return res.text();
-              })
-              .then((source) => {
-                // UMD bundle: hide the artifact's AMD/CommonJS globals so it takes the
-                // window-global branch; inline script text runs synchronously on insert.
-                const hidden = ['define', 'module', 'exports'].map((k) => {
-                  const entry = { k, own: Object.prototype.hasOwnProperty.call(window, k), v: window[k] };
-                  try { window[k] = undefined; } catch (e) {}
-                  return entry;
-                });
-                try {
-                  const el = document.createElement('script');
-                  el.text = source;
-                  (document.head || document.documentElement).appendChild(el);
-                } finally {
-                  hidden.forEach(({ k, own, v }) => {
-                    try { if (own) { window[k] = v; } else { delete window[k]; } } catch (e) {}
-                  });
-                }
-                if (!window.htmlToImage) throw new Error('html-to-image unavailable after load');
-                return window.htmlToImage;
-              });
-            // A failed load may be transient; let the next screenshot retry.
-            htmlToImageLoad.catch(() => { htmlToImageLoad = null; });
-          }
-          return htmlToImageLoad;
-        };
-        // crypto.randomUUID exists only in Secure Contexts; fall back to a
-        // unique non-crypto id elsewhere (http://LAN-IP dev flows) —
-        // uniqueness is what the bridge needs, unpredictability is
-        // defense-in-depth on top of the source guards.
-        const newRequestId =
-          cryptoObj && typeof cryptoObj.randomUUID === "function"
-            ? function () { return cryptoObj.randomUUID(); }
-            : function () { return Date.now() + "-" + Math.random(); };
-
-        // Bridge request ids are crypto-random (not sequential) so they
-        // cannot be predicted by other frames in the tab.
-        let callbacksMap = new Map();
-        let streamControllers = new Map();
-        
-        window.claude = {
-          complete: (prompt) => {
-            return new Promise((resolve, reject) => {
-              const id = newRequestId();
-              callbacksMap.set(id, { resolve, reject });
-              realParent.postMessage({ type: 'claudeComplete', id, prompt }, '*');
-            });
-          }
-        };
-
-        // storage.get and .list calls not yet answered, read by the parent at this frame's 'load' (an answer may restyle the page); counted
-        // here, not there, because WebKit can run this frame's 'load' in the parent before a message posted while parsing has arrived.
-        let storageReadsOut = 0;
-        try { Object.defineProperty(window, '__storageReadsOut', { configurable: true, get: () => storageReadsOut }); } catch (e) {}
-        window.storage = {
-          get: (key, shared = false) => {
-            return new Promise((resolve, reject) => {
-              const id = newRequestId();
-              callbacksMap.set(id, { resolve, reject });
-              realParent.postMessage({ type: 'storageGet', id, key, shared }, '*');
-              storageReadsOut += 1;
-            });
-          },
-          set: (key, value, shared = false) => {
-            return new Promise((resolve, reject) => {
-              const id = newRequestId();
-              callbacksMap.set(id, { resolve, reject });
-              realParent.postMessage({ type: 'storageSet', id, key, value, shared }, '*');
-            });
-          },
-          delete: (key, shared = false) => {
-            return new Promise((resolve, reject) => {
-              const id = newRequestId();
-              callbacksMap.set(id, { resolve, reject });
-              realParent.postMessage({ type: 'storageDelete', id, key, shared }, '*');
-            });
-          },
-          list: (prefix, shared = false) => {
-            return new Promise((resolve, reject) => {
-              const id = newRequestId();
-              callbacksMap.set(id, { resolve, reject });
-              realParent.postMessage({ type: 'storageList', id, prefix, shared }, '*');
-              storageReadsOut += 1;
-            });
-          }
-        };
-
-        let pendingBlobs = new Map();
-        URL.createObjectURL = (blob) => {
-          // Store the blob and create an ID and URL for it
-          const blobId = `blob-${Date.now()}-${Math.random()}`;
-          pendingBlobs.set(blobId, blob);
-          return `blob-request://${blobId}`;
-        };
-
-        URL.revokeObjectURL = (url) => {
-          // Remove the blob from our store
-          const blobId = url.replace("blob-request://", "");
-          pendingBlobs.delete(blobId);
-        };
-
-        const getBlobFromURL = (url) => {
-          const blobId = url.replace("blob-request://", "");
-          return pendingBlobs.get(blobId);
-        };
-
-        // Override global fetch with streaming support
-        window.fetch = (url, init = {}) => {
-          return new Promise((resolve, reject) => {
-            const id = newRequestId();
-            const channelId = `fetch-${id}-${Date.now()}`;
-            
-            callbacksMap.set(id, { 
-              resolve: (response) => {
-                // Null-body statuses: Response(stream, {status: 204}) throws
-                // per the Fetch spec, which would escape this resolver and
-                // hang the artifact's await forever.
-                if (response.status === 204 || response.status === 205 || response.status === 304) {
-                  try {
-                    resolve(new Response(null, {
-                      status: response.status,
-                      statusText: response.statusText,
-                      headers: response.headers
-                    }));
-                  } catch (err) {
-                    // Invalid statusText/header bytes can throw here too.
-                    reject(new TypeError(
-                      'Bridge fetch: unconstructable response (status ' + response.status + ')'
-                    ));
-                  }
-                  return;
-                }
-                // Create a ReadableStream for the response body
-                const stream = new ReadableStream({
-                  start(controller) {
-                    streamControllers.set(channelId, controller);
-                  },
-                  cancel() {
-                    streamControllers.delete(channelId);
-                  }
-                });
-                
-                // Create and return the Response with the stream. Response()
-                // requires status in [200, 599]; an opaque/no-cors fetch
-                // forwards status 0, which would throw here and escape the
-                // resolver, hanging the artifact's await. Surface it as a
-                // network-error-shaped rejection instead.
-                try {
-                  resolve(new Response(stream, {
-                    status: response.status,
-                    statusText: response.statusText,
-                    headers: response.headers
-                  }));
-                } catch (err) {
-                  streamControllers.delete(channelId);
-                  reject(new TypeError(
-                    'Bridge fetch: unconstructable response (status ' + response.status + ')'
-                  ));
-                }
-              },
-              reject,
-              channelId
-            });
-            
-            realParent.postMessage({
-              type: 'proxyFetch',
-              id,
-              url,
-              init,
-              channelId
-            }, '*');
-          });
-        };
-
-        window.addEventListener('message', async (event) => {
-          // Only the embedding parent may drive the bridge — sibling and
-          // nested frames can also postMessage into this window.
-          if (event.source !== realParent) return;
-          if (event.data.type === 'takeScreenshot') {
-            // Echo the request's nonce so the requester can correlate the
-            // reply to ITS request — a reply without the expected nonce
-            // (e.g. from a stale pre-remount artifact) is ignored upstream.
-            const screenshotNonce = event.data.nonce;
-            const rootElement = document.getElementById('artifacts-component-root-html');
-            if (!rootElement) {
-              realParent.postMessage({
-                type: 'screenshotError',
-                nonce: screenshotNonce,
-                error: new Error('Root element not found'),
-              }, '*');
-              return;
-            }
-            // Catch CDN load failures and toPng errors so the parent always
-            // gets a response instead of hanging forever.
-            try {
-              const htmlToImage = await loadHtmlToImage();
-              // Draws only the top, 630/1200 of the width tall, as the link preview is 1200x630. `height` also shortens html-to-image's copy of the root and
-              // what its % min- and max-height resolve against, which moves centred content; `style` undoes that. Keep in step with app/page.tsx.
-              const previewHeight = Math.ceil((rootElement.offsetWidth * 630) / 1200);
-              const screenshot = await htmlToImage.toPng(rootElement, {
-                ...(rootElement.offsetHeight > previewHeight && {
-                  height: previewHeight,
-                  style: { height: window.getComputedStyle(rootElement).height, minHeight: '0', maxHeight: 'none' },
-                }),
-                imagePlaceholder:
-                  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAA1JREFUGFdjePDgwX8ACOQDoNsk0PMAAAAASUVORK5CYII=",
-              });
-              realParent.postMessage({
-                type: 'screenshotData',
-                nonce: screenshotNonce,
-                data: screenshot,
-              }, '*');
-            } catch (err) {
-              realParent.postMessage({
-                type: 'screenshotError',
-                nonce: screenshotNonce,
-                error: err instanceof Error ? err : new Error(String(err)),
-              }, '*');
-            }
-          } else if (event.data.type === 'claudeComplete') {
-            const callback = callbacksMap.get(event.data.id);
-            if (!callback) return;
-            if (event.data.error) {
-              callback.reject(new Error(event.data.error));
-            } else {
-              callback.resolve(event.data.completion);
-            }
-            callbacksMap.delete(event.data.id);
-          } else if (event.data.type === 'proxyFetchResponse') {
-            const callback = callbacksMap.get(event.data.id);
-            if (!callback) return;
-            if (event.data.error) {
-              callback.reject(new Error(event.data.error));
-              callbacksMap.delete(event.data.id);
-            } else {
-              // Initial response with headers, status, etc.
-              callback.resolve({
-                status: event.data.status,
-                statusText: event.data.statusText,
-                headers: event.data.headers
-              });
-              // Don't delete the callback yet if streaming
-              if (!event.data.body) {
-                callbacksMap.delete(event.data.id);
-              }
-            }
-          } else if (event.data.type === 'proxyFetchStream') {
-            // Handle streaming data chunks
-            const controller = streamControllers.get(event.data.channelId);
-            if (controller) {
-              if (event.data.error) {
-                controller.error(new Error(event.data.error));
-                streamControllers.delete(event.data.channelId);
-              } else if (event.data.done) {
-                controller.close();
-                streamControllers.delete(event.data.channelId);
-                // Clean up the callback
-                const callback = Array.from(callbacksMap.entries()).find(
-                  ([_, value]) => value.channelId === event.data.channelId
-                );
-                if (callback) {
-                  callbacksMap.delete(callback[0]);
-                }
-              } else if (event.data.chunk) {
-                controller.enqueue(new Uint8Array(event.data.chunk));
-              }
-            }
-          } else if (event.data.type === 'storageGet') {
-            const callback = callbacksMap.get(event.data.id);
-            if (!callback) return;
-            storageReadsOut -= 1;
-            if (event.data.error) {
-              callback.reject(new Error(event.data.error));
-            } else {
-              callback.resolve(event.data.result);
-            }
-            callbacksMap.delete(event.data.id);
-          } else if (event.data.type === 'storageSet') {
-            const callback = callbacksMap.get(event.data.id);
-            if (!callback) return;
-            if (event.data.error) {
-              callback.reject(new Error(event.data.error));
-            } else {
-              callback.resolve(event.data.result);
-            }
-            callbacksMap.delete(event.data.id);
-          } else if (event.data.type === 'storageDelete') {
-            const callback = callbacksMap.get(event.data.id);
-            if (!callback) return;
-            if (event.data.error) {
-              callback.reject(new Error(event.data.error));
-            } else {
-              callback.resolve(event.data.result);
-            }
-            callbacksMap.delete(event.data.id);
-          } else if (event.data.type === 'storageList') {
-            const callback = callbacksMap.get(event.data.id);
-            if (!callback) return;
-            storageReadsOut -= 1;
-            if (event.data.error) {
-              callback.reject(new Error(event.data.error));
-            } else {
-              callback.resolve(event.data.result);
-            }
-            callbacksMap.delete(event.data.id);
-          }
-        });
-
-        // An SVG <a> exposes href as an SVGAnimatedString; its baseVal is the attribute
-        // as written, so resolve it against the base URL as the browser does for an HTML <a>.
-        const resolvedHref = (linkEl) => {
-          if (typeof linkEl.href === "string") return linkEl.href;
-          const written = linkEl.href?.baseVal;
-          // A same-document SVG link, such as one that begins an animation, stays with the browser.
-          if (!written || written.trim().startsWith("#")) return "";
-          try {
-            return new RealURL(written, linkEl.baseURI).href;
-          } catch (error) {
-            return written;
-          }
-        };
-
-        // This frame's URL is about:srcdoc, so the browser resolves "#id" against the renderer
-        // page and would load that page in the frame instead of scrolling.
-        const sameDocumentFragment = (linkEl) => {
-          const written = linkEl.getAttribute("href")?.trim();
-          if (!written?.startsWith("#") || document.querySelector("base[href]")) return null;
-          return written.slice(1);
-        };
-
-        const scrollToFragment = (fragment) => {
-          let decoded = fragment;
-          try {
-            decoded = realDecodeURIComponent(fragment);
-          } catch (error) {}
-          let target = document.getElementById(fragment) ?? document.getElementById(decoded);
-          for (const named of target ? [] : document.getElementsByName(decoded)) {
-            if (named.localName === "a") {
-              target = named;
-              break;
-            }
-          }
-          if (target) {
-            target.scrollIntoView();
-          } else if (decoded.toLowerCase() === "top") {
-            window.scrollTo(0, 0);
-          } else {
-            return false;
-          }
-          return true;
-        };
-
-        // Same decoder as dataUrlFile in app/page.tsx; change both together.
-        const hexPair = /^[0-9a-f]{2}$/i;
-        const dataUrlFile = (href) => {
-          const hash = href.indexOf("#");
-          const url = hash === -1 ? href : href.slice(0, hash);
-          const comma = url.indexOf(",");
-          if (comma === -1) return null;
-          const header = url.slice(0, comma);
-          const payload = url.slice(comma + 1);
-          const mimeMatch = header.match(/data:([^;]+)/);
-          const mimeType = mimeMatch ? mimeMatch[1] : "application/octet-stream";
-          const declaredBase64 = header
-            .split(";")
-            .slice(1)
-            .some((param) => param.trim().toLowerCase() === "base64");
-          const type = mimeMatch ? mimeMatch[1].trim().toLowerCase() : "";
-          const binaryType = type !== "" && !type.startsWith("text/");
-          if (declaredBase64 || (binaryType && !payload.includes("%"))) {
-            let binary = null;
-            try {
-              binary = realAtob(
-                payload.replace(/%([0-9a-f]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16))),
-              );
-            } catch (error) {
-              if (declaredBase64) return null;
-            }
-            if (binary !== null) {
-              const bytes = new Uint8Array(binary.length);
-              for (let i = 0; i < binary.length; i++) {
-                bytes[i] = binary.charCodeAt(i);
-              }
-              return { mimeType, data: bytes.buffer };
-            }
-          }
-          const input = new RealTextEncoder().encode(payload);
-          const bytes = new Uint8Array(input.length);
-          let length = 0;
-          for (let i = 0; i < input.length; i++) {
-            if (input[i] === 0x25 && i + 2 < input.length) {
-              const pair = String.fromCharCode(input[i + 1], input[i + 2]);
-              if (hexPair.test(pair)) {
-                bytes[length++] = parseInt(pair, 16);
-                i += 2;
-                continue;
-              }
-            }
-            bytes[length++] = input[i];
-          }
-          return { mimeType, data: bytes.slice(0, length).buffer };
-        };
-
-        const onLinkClick = (event) => {
-          // Not instanceof Element: an artifact's own top-level class Element shadows the global.
-          if (typeof event.target?.closest !== "function") return;
-    
-          const linkEl = event.target.closest("a");
-          const href = linkEl && resolvedHref(linkEl);
-          if (!href) return;
-
-          const fragment = sameDocumentFragment(linkEl);
-          if (fragment !== null) {
-            const handledByArtifact = event.defaultPrevented;
-            event.preventDefault();
-            if (handledByArtifact || fragment === "" || scrollToFragment(fragment)) return;
-            // A fragment that names nothing in the artifact may name something in the host,
-            // such as a project thread. The artifact's own listeners still see the click.
-            realParent.postMessage({ type: 'openExternal', href }, '*');
-            return;
-          }
-          const filename = linkEl.getAttribute("download") ?? "";
-    
-          event.preventDefault();
-          event.stopImmediatePropagation();
-    
-          if (href.startsWith("blob-request:")) {
-            const blob = getBlobFromURL(href);
-            if (!blob) return;
-            void blob.arrayBuffer().then((data) => {
-              realParent.postMessage({
-                type: "downloadFile",
-                filename,
-                data,
-                mimeType: blob.type || "application/octet-stream",
-              });
-            });
-          } else if (href.startsWith("data:")) {
-            const file = dataUrlFile(href);
-            if (!file) return;
-            realParent.postMessage({
-              type: "downloadFile",
-              filename,
-              data: file.data,
-              mimeType: file.mimeType,
-            });
-          } else {
-            let linkUrl;
-            try {
-              linkUrl = new URL(href);
-            } catch (error) {
-              return;
-            }
-    
-            if (linkUrl.hostname === window.location.hostname) return;
-      
-            realParent.postMessage({
-              type: 'openExternal',
-              href,
-            }, '*');
-          }
-        };
-        window.addEventListener('click', onLinkClick);
-
-        // HACK: a click on an <a download> that is not in the document, or a dispatched click that does not bubble, never reaches the window
-        // listener, so the link gets a listener of its own while its click() or dispatchEvent() runs, after the artifact's. Change with app/page.tsx.
-        const RealAnchor = window.HTMLAnchorElement;
-        const RealMouseEvent = window.MouseEvent;
-        const anchorProto = RealAnchor?.prototype;
-        const superProto = anchorProto && Object.getPrototypeOf(anchorProto);
-        if (typeof RealAnchor === 'function' && typeof RealMouseEvent === 'function' && typeof superProto?.click === 'function' && typeof superProto?.dispatchEvent === 'function') {
-          const onMissedClick = (event) => {
-            if (!event.defaultPrevented) onLinkClick(event);
-          };
-          // Links whose click() or dispatchEvent() is running, so a call made during it leaves the outer call's listener in place.
-          const listening = new WeakSet();
-          const callHearingMissed = (anchor, bubbles, call) => {
-            if (!(anchor instanceof RealAnchor) || !anchor.hasAttribute('download') || (anchor.isConnected && bubbles) || listening.has(anchor)) {
-              return call();
-            }
-            listening.add(anchor);
-            anchor.addEventListener('click', onMissedClick);
-            try {
-              return call();
-            } finally {
-              listening.delete(anchor);
-              anchor.removeEventListener('click', onMissedClick);
-            }
-          };
-          anchorProto.click = function () {
-            return callHearingMissed(this, true, () => superProto.click.call(this));
-          };
-          anchorProto.dispatchEvent = function (event) {
-            const call = () => superProto.dispatchEvent.call(this, event);
-            return event instanceof RealMouseEvent && event.type === 'click' ? callHearingMissed(this, event.bubbles, call) : call();
-          };
-        }
-
-        const originalOpen = window.open;
-        window.open = function (url) {
-          realParent.postMessage({
-            type: "openExternal",
-            href: url,
-          }, "*");
-        };
-
-        window.addEventListener('error', (event) => {
-          realParent.postMessage({ type: 'console', message: 'Uncaught Error: ' + event.message }, '*');
-        });
-
-        // Last, so that if this throws, everything above is already set up. In its own function, so that its names stay local.
-        (() => {
-          function forwardConsole(e,r){const c=String,f=Reflect.apply;let i=0;const p=n=>i>3&&(typeof n=="function"||typeof n=="object"&&n!==null)?"[object Object]":n,s=n=>{try{return c(n??"")}catch{return"[object Object]"}},u=[["log",""],["error","Error: "],["warn","Warning: "]];for(const[n,y]of u){const h=e[n];e[n]=(...o)=>{let l=y;i+=1;try{for(let t=0;t<o.length;t+=1)o[t]=p(o[t]);f(h,e,o);for(let t=0;t<o.length;t+=1)l+=(t===0?"":" ")+s(o[t])}finally{i-=1}r(l)}}}
-          forwardConsole(window.console, (line) => realParent.postMessage({ type: 'console', message: line }, '*'));
-        })();
-      })();
-    </script>
   <style id="claude-scrollbar">@layer claude-scrollbar{*{scrollbar-width:thin}html{scrollbar-color:rgb(128 128 128 / 50%) transparent}}</style>
 
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -919,9 +374,9 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
     </div>
     <div class="bottoni">
       <button id="btnZip" class="grande" type="button">Scarica ZIP</button>
-      <button id="btnCondividi" class="grande turchese" type="button">Condividi</button>
+      <button id="btnCondividi" class="grande turchese" type="button">Salva le modifiche (.md)</button>
     </div>
-    <p id="notaCondividi" class="nota">Su questo browser la condivisione dei file non è disponibile: usa lo ZIP.</p>
+    <p id="notaCondividi" class="nota">«Salva le modifiche» crea un file .md con i titoli e i tempi attuali di tutti i brani. Ricaricalo insieme all’audio, al posto del file dei parziali, per riprendere il lavoro in un secondo momento.</p>
   </div>
 </main>
 
@@ -1360,7 +815,7 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
       : 'Nessun brano selezionato';
     var occ = !$('occupato').hidden;
     $('btnZip').disabled = occ || !sel.length;
-    $('btnCondividi').disabled = occ || !sel.length || !puoCondividere;
+    $('btnCondividi').disabled = occ || !S.rows.length;
   }
   $('btnTutti').addEventListener('click', function () { S.rows.forEach(function (r) { if (!r.a.blocked) r.sel = true; }); disegna(); });
   $('btnNessuno').addEventListener('click', function () { S.rows.forEach(function (r) { r.sel = false; }); disegna(); });
@@ -1633,13 +1088,7 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
     return new Blob(parts.concat(central, [end.buffer]), { type: 'application/zip' });
   }
 
-  /* ---------- Scarica e condividi ---------- */
-  var puoCondividere = false;
-  try {
-    puoCondividere = !!(navigator.canShare && navigator.share && navigator.canShare({ files: [new File(['x'], 'prova.mp3', { type: 'audio/mpeg' })] }));
-  } catch (e) { puoCondividere = false; }
-  $('notaCondividi').hidden = puoCondividere;
-
+  /* ---------- Scarica e salva ---------- */
   function occupato(on, testo, p) {
     $('occupato').hidden = !on;
     if (on) { $('occupatoTesto').textContent = testo || ''; $('occupatoBarra').style.width = Math.round((p || 0) * 100) + '%'; }
@@ -1677,18 +1126,36 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
     });
   });
 
+  function nomeMd() {
+    var base = pulisciNome((S.audioFile && S.audioFile.name ? S.audioFile.name : 'prova').replace(/\.[^.]+$/, '')) || 'prova';
+    var d = new Date();
+    var data = p2(d.getDate()) + '_' + p2(d.getMonth() + 1) + '_' + d.getFullYear();
+    return base + ' tagli-' + data + '.md';
+  }
+  function creaMd() {
+    var o = '# Parziali della prova\n\n';
+    if (S.meta.date) o += 'Avvio registrazione: ' + S.meta.date + '\n';
+    o += 'Durata: ' + fmt(S.info ? S.info.dur : (S.meta.durata || 0)) + '\n\n';
+    o += '| N | Nome | Inizio | Fine |\n|---|------|--------|------|\n';
+    S.rows.forEach(function (r, i) {
+      var nome = String(r.name || '').replace(/[|\r\n]+/g, ' ').trim();
+      var ini = r.start == null ? (r.iniBad || '') : fld(r.start);
+      var fin = r.end == null ? (r.finBad || '') : fld(r.end);
+      o += '| ' + (i + 1) + ' | ' + nome + ' | ' + ini + ' | ' + fin + ' |\n';
+    });
+    return o;
+  }
+
   $('btnCondividi').addEventListener('click', function () {
-    var sel = selezionati();
-    if (!sel.length) return;
+    if (!S.rows.length) return;
     audio.pause();
-    var files = sel.map(function (r) { return new File([costruisci(r)], r.a.file + '.mp3', { type: 'audio/mpeg' }); });
-    navigator.share({ files: files, title: S.meta.date ? 'Prova del ' + S.meta.date.split('-').reverse().join('/') : 'Prova' })
-      .then(function () {
-        fatto('Brani condivisi', 'Hai condiviso ' + sel.length + (sel.length === 1 ? ' brano.' : ' brani.'));
-      }).catch(function (e) {
-        if (e && e.name === 'AbortError') return;
-        $('conto').textContent = 'La condivisione non è riuscita. Prova con lo ZIP.';
-      });
+    var nome = nomeMd();
+    var blob = new Blob([creaMd()], { type: 'text/markdown;charset=utf-8' });
+    var url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = nome;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 120000);
+    fatto('Modifiche salvate', 'Ho creato il file ' + nome + ' con i titoli e i tempi attuali di tutti i brani. Lo trovi tra i download del tuo dispositivo. Per riprendere, ricaricalo insieme all’audio al posto del file dei parziali.');
   });
 
   /* ---------- Schermata 3 ---------- */
@@ -1707,24 +1174,6 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
   });
 
   aggiornaZone();
-})();
-</script>
-
-
-<script>
-/* Fix standalone: il runtime artifact di Claude sostituisce URL.createObjectURL con uno
-   schema blob-request:// che funziona solo dentro claude.ai. Qui ripristiniamo i blob
-   nativi del browser, cosi riproduzione audio e download ZIP funzionano su hosting statico. */
-(function(){
-  try{
-    var fr=document.createElement("iframe");
-    fr.setAttribute("aria-hidden","true");
-    fr.style.cssText="position:absolute;width:0;height:0;border:0;left:-9999px";
-    document.body.appendChild(fr);
-    var NU=fr.contentWindow.URL;
-    URL.createObjectURL=function(b){return NU.createObjectURL(b);};
-    URL.revokeObjectURL=function(u){try{return NU.revokeObjectURL(u);}catch(e){}};
-  }catch(e){console.warn("blob restore failed",e);}
 })();
 </script>
 </body></html>
