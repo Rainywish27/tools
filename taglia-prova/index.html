@@ -280,6 +280,8 @@ dialog {
 dialog::backdrop { background: rgba(0, 32, 66, 0.62); }
 dialog h2:focus { outline: none; }
 dialog label.campo { display: grid; gap: 4px; font-weight: 700; margin-bottom: 10px; }
+.riga-titolo { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; }
+.riga-titolo select { width: auto; min-width: 86px; }
 .due { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .player { display: grid; gap: 10px; padding: 12px; margin: 2px 0 10px; border: 2px solid var(--line); border-radius: 18px; }
 .player .tempo { font-size: 2rem; font-weight: 800; font-variant-numeric: tabular-nums; text-align: center; line-height: 1.1; }
@@ -397,12 +399,14 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
 <!-- ====== Modifica brano ====== -->
 <dialog id="dlg" aria-labelledby="dTitolo">
   <h2 id="dTitolo" tabindex="-1" autofocus="">Modifica brano</h2>
-  <label class="campo">Titolo
-    <input id="eNome" type="text" autocomplete="off">
-  </label>
-  <label class="campo">Giudizio
-    <select id="eRating"></select>
-  </label>
+  <div class="riga-titolo">
+    <label class="campo">Titolo
+      <input id="eNome" type="text" autocomplete="off">
+    </label>
+    <label class="campo">Giudizio
+      <select id="eRating"></select>
+    </label>
+  </div>
   <div class="due">
     <label class="campo">Inizio
       <input id="eIni" type="text" inputmode="decimal" placeholder="00:03:12" autocomplete="off">
