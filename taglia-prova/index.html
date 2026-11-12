@@ -145,7 +145,7 @@ button.pericolo { color: var(--danger); border-color: var(--danger); }
 .grande.turchese:active:not(:disabled) { box-shadow: 0 1px 0 var(--turchese-ombra); }
 .grande:disabled { opacity: 0.5; }
 
-input[type="text"], input[type="number"] {
+input[type="text"], input[type="number"], select {
   font: inherit;
   font-size: 16px;
   color: var(--ink);
@@ -157,6 +157,7 @@ input[type="text"], input[type="number"] {
   width: 100%;
   min-width: 0;
 }
+#eRating { font-weight: 700; }
 svg { display: block; }
 .ic svg, .grande svg { width: 22px; height: 22px; fill: currentColor; }
 
@@ -399,6 +400,9 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
   <label class="campo">Titolo
     <input id="eNome" type="text" autocomplete="off">
   </label>
+  <label class="campo">Giudizio
+    <select id="eRating"></select>
+  </label>
   <div class="due">
     <label class="campo">Inizio
       <input id="eIni" type="text" inputmode="decimal" placeholder="00:03:12" autocomplete="off">
@@ -471,6 +475,10 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
   }
   function mb(bytes) { return (bytes / 1048576).toFixed(bytes < 10485760 ? 1 : 0) + ' MB'; }
   function round1(x) { return Math.round(x * 10) / 10; }
+  // ---------- Giudizio: numero <-> faccina (tenere allineata con la pagina "Parziali") ----------
+  var FACCE = ['', '😖', '🙁', '😐', '🙂', '🤩']; // 1..5
+  function faccia(n) { n = parseInt(n, 10); return (n >= 1 && n <= 5) ? FACCE[n] : ''; }
+  function normRating(s) { var n = parseInt(String(s || '').trim(), 10); return (n >= 1 && n <= 5) ? String(n) : ''; }
   function pulisciNome(t) {
     return String(t || '')
       .replace(/[\u0000-\u001f\u007f\/\\:*?"<>|]+/g, ' ')
@@ -551,16 +559,17 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
       if (cells.every(function (c) { return /^:?-{2,}:?$/.test(c); })) return;
       var low = cells.map(function (c) { return c.toLowerCase(); });
       if (low.indexOf('inizio') >= 0 && low.indexOf('nome') >= 0) {
-        cols = { nome: low.indexOf('nome'), ini: low.indexOf('inizio'), fin: low.indexOf('fine') };
+        cols = { nome: low.indexOf('nome'), ini: low.indexOf('inizio'), fin: low.indexOf('fine'), giu: low.indexOf('giudizio') };
         return;
       }
-      var c = cols || { nome: 1, ini: 2, fin: 3 };
+      var c = cols || { nome: 1, ini: 2, fin: 3, giu: -1 };
       var iniTxt = cells[c.ini] || '', finTxt = (c.fin >= 0 ? cells[c.fin] : '') || '';
       var start = parseTempo(iniTxt);
       var end = finTxt === '' ? null : parseTempo(finTxt);
       rows.push({
         id: rows.length + 1,
         name: cells[c.nome] || '',
+        rating: normRating((c.giu != null && c.giu >= 0) ? cells[c.giu] : ''),
         start: start, end: end,
         iniBad: start == null ? iniTxt : null,
         finBad: (finTxt !== '' && end == null) ? finTxt : null,
@@ -716,6 +725,8 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
       if (a.noName && !a.blocked) a.problems.push({ lvl: 'warn', txt: 'Il brano non ha titolo: il file si chiamerà «' + esc(a.file) + '». Tocca la matita per darglielo.' });
       while (usati[a.file.toLowerCase()]) a.file += ' bis';
       usati[a.file.toLowerCase()] = 1;
+      // Il giudizio va nel nome del file della traccia, non nel titolo ID3 (resta a.file pulito).
+      a.fileZip = a.file + (r.rating ? ' [' + r.rating + ']' : '');
       a.warn = a.problems.some(function (p) { return p.lvl === 'warn'; });
     });
   }
@@ -753,7 +764,7 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
       corpo.className = 'corpo';
       var t = document.createElement('div');
       t.className = 'titolo';
-      t.textContent = p2(idx + 1) + '. ' + a.file + (a.blocked ? '' : '.mp3');
+      t.textContent = p2(idx + 1) + '. ' + a.fileZip + (a.blocked ? '' : '.mp3') + (faccia(r.rating) ? '  ' + faccia(r.rating) : '');
       var d = document.createElement('div');
       d.className = 'tempi';
       if (a.blocked) {
@@ -933,6 +944,12 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
     edit.row = r;
     $('dTitolo').textContent = 'Modifica il brano ' + p2(S.rows.indexOf(r) + 1);
     $('eNome').value = r.name;
+    if (!$('eRating').options.length) {
+      var selR = $('eRating');
+      var vuoto = document.createElement('option'); vuoto.value = ''; vuoto.textContent = '—'; selR.appendChild(vuoto);
+      for (var n = 1; n <= 5; n++) { var o = document.createElement('option'); o.value = String(n); o.textContent = FACCE[n]; selR.appendChild(o); }
+    }
+    $('eRating').value = r.rating || '';
     $('eIni').value = r.start == null ? (r.iniBad || '') : fld(r.start);
     $('eFin').value = r.end == null ? (r.finBad || '') : fld(r.end);
     $('eErr').textContent = '';
@@ -1001,6 +1018,7 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
     }
     var r = edit.row;
     r.name = $('eNome').value.trim();
+    r.rating = $('eRating').value;
     r.start = ini; r.end = fin; r.iniBad = null; r.finBad = null;
     analizza(); disegna();
     $('dlg').close();
@@ -1111,7 +1129,7 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
       var r = sel[i], blob = costruisci(r);
       occupato(true, 'Preparo il brano ' + (i + 1) + ' di ' + sel.length + '…', i / sel.length);
       return crcBlob(blob).then(function (crc) {
-        entries.push({ name: r.a.file + '.mp3', blob: blob, crc: crc, size: blob.size });
+        entries.push({ name: r.a.fileZip + '.mp3', blob: blob, crc: crc, size: blob.size });
         i++;
         return prossimo();
       });
@@ -1140,12 +1158,12 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
     var o = '# Parziali della prova\n\n';
     if (S.meta.date) o += 'Avvio registrazione: ' + S.meta.date + '\n';
     o += 'Durata: ' + fmt(S.info ? S.info.dur : (S.meta.durata || 0)) + '\n\n';
-    o += '| N | Nome | Inizio | Fine |\n|---|------|--------|------|\n';
+    o += '| N | Nome | Inizio | Fine | Giudizio |\n|---|------|--------|--------|----------|\n';
     S.rows.forEach(function (r, i) {
       var nome = String(r.name || '').replace(/[|\r\n]+/g, ' ').trim();
       var ini = r.start == null ? (r.iniBad || '') : fld(r.start);
       var fin = r.end == null ? (r.finBad || '') : fld(r.end);
-      o += '| ' + (i + 1) + ' | ' + nome + ' | ' + ini + ' | ' + fin + ' |\n';
+      o += '| ' + (i + 1) + ' | ' + nome + ' | ' + ini + ' | ' + fin + ' | ' + (r.rating || '') + ' |\n';
     });
     return o;
   }
