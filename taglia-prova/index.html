@@ -145,7 +145,7 @@ button.pericolo { color: var(--danger); border-color: var(--danger); }
 .grande.turchese:active:not(:disabled) { box-shadow: 0 1px 0 var(--turchese-ombra); }
 .grande:disabled { opacity: 0.5; }
 
-input[type="text"], input[type="number"] {
+input[type="text"], input[type="number"], select {
   font: inherit;
   font-size: 16px;
   color: var(--ink);
@@ -157,6 +157,7 @@ input[type="text"], input[type="number"] {
   width: 100%;
   min-width: 0;
 }
+#eRating { font-weight: 700; }
 svg { display: block; }
 .ic svg, .grande svg { width: 22px; height: 22px; fill: currentColor; }
 
@@ -196,7 +197,10 @@ label.zona.pieno svg { fill: var(--turchese-ombra); }
 .comandi button { min-height: 42px; }
 details.regola { background: var(--surface); border: 2px solid var(--line); border-radius: 16px; padding: 0 14px; }
 details.regola summary { min-height: 46px; display: flex; align-items: center; font-weight: 700; cursor: pointer; }
-details.regola .campi { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 4px 0 14px; }
+details.regola .campi { display: grid; grid-template-columns: 1fr; gap: 10px; padding: 4px 0 14px; }
+.sposta-riga { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; }
+.sposta-riga .oro { color: var(--muted); display: grid; place-items: center; }
+.sposta-riga .oro svg { width: 24px; height: 24px; fill: currentColor; }
 details.regola label { display: grid; gap: 4px; font-weight: 700; font-size: 0.92rem; }
 details.regola .nota { grid-column: 1 / -1; }
 
@@ -279,6 +283,8 @@ dialog {
 dialog::backdrop { background: rgba(0, 32, 66, 0.62); }
 dialog h2:focus { outline: none; }
 dialog label.campo { display: grid; gap: 4px; font-weight: 700; margin-bottom: 10px; }
+.riga-titolo { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; }
+.riga-titolo select { width: auto; min-width: 86px; }
 .due { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .player { display: grid; gap: 10px; padding: 12px; margin: 2px 0 10px; border: 2px solid var(--line); border-radius: 18px; }
 .player .tempo { font-size: 2rem; font-weight: 800; font-variant-numeric: tabular-nums; text-align: center; line-height: 1.1; }
@@ -292,6 +298,9 @@ dialog label.campo { display: grid; gap: 4px; font-weight: 700; margin-bottom: 1
 dialog .bottoni { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
 
+.tempi .mod { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px; }
+.mappa { position: relative; height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--line) 22%, transparent); margin-top: 4px; overflow: hidden; }
+.banda { position: absolute; top: 0; bottom: 0; left: 0; width: 0; background: var(--turchese); border-radius: 999px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -354,13 +363,16 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
   <details class="regola">
     <summary>Regolazioni dei tagli</summary>
     <div class="campi">
-      <label>Margine d’ascolto in anteprima (secondi)
-        <input id="rMargine" type="number" inputmode="decimal" min="0" max="60" step="1" value="5">
-      </label>
+      <p class="nota">Ogni brano è tagliato con 2 secondi di margine prima e dopo. Se lo correggi a mano con la matita, valgono esatti l’inizio e la fine che scrivi tu, e in lista restano sottolineati.</p>
       <label>Sposta tutti i tagli (secondi)
-        <input id="rSposta" type="number" inputmode="decimal" min="-120" max="120" step="0.5" value="0">
+        <div class="sposta-riga">
+          <span class="oro" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm-1 3v6l5 3 .9-1.5-4.9-2.9V7z"/></svg>
+          </span>
+          <input id="rSposta" type="number" inputmode="decimal" min="-120" max="120" step="0.5" value="0">
+        </div>
       </label>
-      <p class="nota">Il margine allarga solo l’ascolto in anteprima, per sentire l’attacco e la coda di ogni brano: le tracce nello ZIP vengono tagliate esattamente ai tempi indicati nell’editing. Se i brani risultano tutti in anticipo o in ritardo, usa «Sposta tutti i tagli»: quello invece sposta davvero i tagli, e un valore positivo li fa partire più tardi.</p>
+      <p class="nota">Serve se tutti i brani sono in anticipo o in ritardo: positivo = più tardi.</p>
     </div>
   </details>
 
@@ -396,9 +408,14 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
 <!-- ====== Modifica brano ====== -->
 <dialog id="dlg" aria-labelledby="dTitolo">
   <h2 id="dTitolo" tabindex="-1" autofocus="">Modifica brano</h2>
-  <label class="campo">Titolo
-    <input id="eNome" type="text" autocomplete="off">
-  </label>
+  <div class="riga-titolo">
+    <label class="campo">Titolo
+      <input id="eNome" type="text" autocomplete="off">
+    </label>
+    <label class="campo">Giudizio
+      <select id="eRating"></select>
+    </label>
+  </div>
   <div class="due">
     <label class="campo">Inizio
       <input id="eIni" type="text" inputmode="decimal" placeholder="00:03:12" autocomplete="off">
@@ -411,6 +428,7 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
   <div class="player" role="group" aria-label="Riascolta e scegli i punti di taglio">
     <div id="pTempo" class="tempo">00:00:00.0</div>
     <input id="pSlider" type="range" min="0" max="100" step="0.1" value="0" aria-label="Posizione nell’audio">
+    <div id="pMappa" class="mappa" aria-hidden="true"><div id="pBanda" class="banda"></div></div>
     <div class="estremi"><span id="pDa">00:00:00</span><span id="pA">00:00:00</span></div>
     <div class="trasporto">
       <button id="pM5" type="button" aria-label="Indietro di 5 secondi">−5 s</button>
@@ -471,6 +489,14 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
   }
   function mb(bytes) { return (bytes / 1048576).toFixed(bytes < 10485760 ? 1 : 0) + ' MB'; }
   function round1(x) { return Math.round(x * 10) / 10; }
+  // ---------- Giudizio: numero <-> faccina (tenere allineata con la pagina "Parziali") ----------
+  var FACCE = ['', '😖', '🙁', '😐', '🙂', '🤩']; // 1..5
+  function faccia(n) { n = parseInt(n, 10); return (n >= 1 && n <= 5) ? FACCE[n] : ''; }
+  function normRating(s) { var n = parseInt(String(s || '').trim(), 10); return (n >= 1 && n <= 5) ? String(n) : ''; }
+  // Cuscinetto fisso (secondi) prima e dopo ogni brano NON modificato a mano: vale sia per l'ascolto in anteprima sia per il taglio esportato.
+  var CUSC = 2;
+  // Confronto tra due tempi tollerante ai piccoli scarti di arrotondamento (0,05 s). Gestisce anche i valori assenti (null).
+  function diverso(a, b) { if (a == null || b == null) return a !== b; return Math.abs(a - b) > 0.05; }
   function pulisciNome(t) {
     return String(t || '')
       .replace(/[\u0000-\u001f\u007f\/\\:*?"<>|]+/g, ' ')
@@ -488,7 +514,7 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
     info: null, infoKey: '',
     meta: { date: null, durata: null },
     rows: [],
-    margin: 5, shift: 0,
+    shift: 0,
     url: null
   };
   var audio = $('audio');
@@ -551,20 +577,21 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
       if (cells.every(function (c) { return /^:?-{2,}:?$/.test(c); })) return;
       var low = cells.map(function (c) { return c.toLowerCase(); });
       if (low.indexOf('inizio') >= 0 && low.indexOf('nome') >= 0) {
-        cols = { nome: low.indexOf('nome'), ini: low.indexOf('inizio'), fin: low.indexOf('fine') };
+        cols = { nome: low.indexOf('nome'), ini: low.indexOf('inizio'), fin: low.indexOf('fine'), giu: low.indexOf('giudizio') };
         return;
       }
-      var c = cols || { nome: 1, ini: 2, fin: 3 };
+      var c = cols || { nome: 1, ini: 2, fin: 3, giu: -1 };
       var iniTxt = cells[c.ini] || '', finTxt = (c.fin >= 0 ? cells[c.fin] : '') || '';
       var start = parseTempo(iniTxt);
       var end = finTxt === '' ? null : parseTempo(finTxt);
       rows.push({
         id: rows.length + 1,
         name: cells[c.nome] || '',
+        rating: normRating((c.giu != null && c.giu >= 0) ? cells[c.giu] : ''),
         start: start, end: end,
         iniBad: start == null ? iniTxt : null,
         finBad: (finTxt !== '' && end == null) ? finTxt : null,
-        sel: true, wasBlocked: false, open: false
+        sel: true, wasBlocked: false, open: false, edited: false
       });
     });
     return { rows: rows, meta: meta };
@@ -655,7 +682,7 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
      Analisi dei brani: tagli, problemi, nomi dei file
      ============================================================ */
   function analizza() {
-    var dur = S.info.dur, mar = S.margin, sh = S.shift;
+    var dur = S.info.dur, sh = S.shift;
     S.rows.forEach(function (r, idx) {
       var a = { problems: [], blocked: false };
       var s = r.start == null ? null : r.start + sh;
@@ -676,12 +703,13 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
           effE = dur;
         }
         if (effE - s < 30) avvisa('Il brano dura solo ' + fmtDur(effE - s) + ': controlla inizio e fine.');
-        // Taglio esatto per l'export: usa i tempi indicati nell'editing (più lo spostamento), senza margine.
-        a.cutS = Math.max(0, s);
-        a.cutE = Math.min(dur, effE);
-        // Finestra d'ascolto in anteprima: allargata dal margine, comoda per sentire attacco e coda.
-        a.playS = Math.max(0, s - mar);
-        a.playE = Math.min(dur, effE + mar);
+        // Cuscinetto: 2 s prima e dopo per i brani non toccati a mano; zero per quelli modificati (valgono esatti).
+        var cu = r.edited ? 0 : CUSC;
+        // Anteprima e taglio esportato coincidono: l'ascolto fa sentire esattamente ciò che finisce nello ZIP.
+        a.cutS = Math.max(0, s - cu);
+        a.cutE = Math.min(dur, effE + cu);
+        a.playS = a.cutS;
+        a.playE = a.cutE;
         var f0 = Math.max(0, Math.min(S.info.frames - 1, Math.floor(a.cutS * S.info.sr / S.info.spf)));
         var f1 = Math.max(f0 + 1, Math.min(S.info.frames, Math.ceil(a.cutE * S.info.sr / S.info.spf)));
         a.f0 = f0; a.f1 = f1;
@@ -716,6 +744,8 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
       if (a.noName && !a.blocked) a.problems.push({ lvl: 'warn', txt: 'Il brano non ha titolo: il file si chiamerà «' + esc(a.file) + '». Tocca la matita per darglielo.' });
       while (usati[a.file.toLowerCase()]) a.file += ' bis';
       usati[a.file.toLowerCase()] = 1;
+      // Il giudizio va nel nome del file della traccia, non nel titolo ID3 (resta a.file pulito).
+      a.fileZip = a.file + (r.rating ? ' [' + r.rating + ']' : '');
       a.warn = a.problems.some(function (p) { return p.lvl === 'warn'; });
     });
   }
@@ -753,13 +783,19 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
       corpo.className = 'corpo';
       var t = document.createElement('div');
       t.className = 'titolo';
-      t.textContent = p2(idx + 1) + '. ' + a.file + (a.blocked ? '' : '.mp3');
+      t.textContent = p2(idx + 1) + '. ' + a.fileZip + (a.blocked ? '' : '.mp3') + (faccia(r.rating) ? '  ' + faccia(r.rating) : '');
       var d = document.createElement('div');
       d.className = 'tempi';
       if (a.blocked) {
         d.textContent = 'Non si può tagliare · ' + (r.start == null ? 'inizio non valido' : fmt(r.start)) + ' → ' + (r.end == null ? 'senza fine' : fmt(r.end));
       } else {
-        d.textContent = fmt(r.start) + ' → ' + fmt(Math.min(r.end, S.info.dur - S.shift)) + ' · dura ' + fmtDur(a.len) + ' · ' + mb(a.bytes);
+        // Mostra la posizione effettiva nel brano (tempi del file + eventuale spostamento). Sottolineato = modificato a mano.
+        var ds = r.start + S.shift, de = Math.min(r.end + S.shift, S.info.dur);
+        var sp = document.createElement('span');
+        if (r.edited) sp.className = 'mod';
+        sp.textContent = fmt(ds) + ' → ' + fmt(de);
+        d.appendChild(sp);
+        d.appendChild(document.createTextNode(' · dura ' + fmtDur(a.len) + ' · ' + mb(a.bytes)));
       }
       corpo.appendChild(t); corpo.appendChild(d);
 
@@ -825,13 +861,10 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
   $('btnNessuno').addEventListener('click', function () { S.rows.forEach(function (r) { r.sel = false; }); disegna(); });
 
   function leggiRegolazioni() {
-    var m = parseFloat($('rMargine').value), sh = parseFloat($('rSposta').value);
-    S.margin = isFinite(m) ? Math.max(0, Math.min(60, m)) : 5;
+    var sh = parseFloat($('rSposta').value);
     S.shift = isFinite(sh) ? Math.max(-120, Math.min(120, sh)) : 0;
   }
-  ['rMargine', 'rSposta'].forEach(function (id) {
-    $(id).addEventListener('change', function () { leggiRegolazioni(); analizza(); disegna(); });
-  });
+  $('rSposta').addEventListener('change', function () { leggiRegolazioni(); analizza(); disegna(); });
 
   /* ---------- Creazione dei tagli ---------- */
   $('btnCrea').addEventListener('click', function () {
@@ -906,21 +939,45 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
   var edit = { row: null, lo: 0, hi: 100, trascina: false };
   function campo(id) { var t = $(id).value.trim(); return t === '' ? null : parseTempo(t); }
 
-  function impostaFinestra() {
+  // Finestra effettiva del brano nella coordinata dell'audio, dallo stato attuale del dialogo (campi dal vivo).
+  // Col cuscinetto finché il brano non è toccato; esatta appena un campo cambia (la modifica è precisa).
+  function segDialogo() {
+    var r = edit.row; if (!r || !S.info) return null;
     var dur = S.info.dur, sh = S.shift;
-    var s = campo('eIni'), e = campo('eFin');
-    var sr = s == null ? null : s + sh, er = e == null ? null : e + sh;
+    var fi = campo('eIni'), ff = campo('eFin');
+    if (fi == null) return null;
+    var untouched = !r.edited && !diverso(fi, r.start) && !diverso(ff, r.end);
+    var cu = untouched ? CUSC : 0;
+    var s = fi + sh;
+    if (ff == null) return { s: Math.max(0, s - cu), e: Math.min(dur, s + 30) };
+    var e = Math.min(dur, ff + sh);
+    return { s: Math.max(0, s - cu), e: Math.min(dur, e + cu) };
+  }
+
+  function impostaFinestra() {
+    var dur = S.info.dur;
+    var seg = segDialogo();
     var lo, hi;
-    if (sr == null) { lo = 0; hi = Math.min(dur, 600); }
+    if (!seg) { lo = 0; hi = Math.min(dur, 600); }
     else {
-      lo = Math.max(0, Math.floor(sr - 60));
-      hi = Math.min(dur, Math.ceil((er != null && er > sr ? er : sr + 300) + 60));
+      // Un minuto di contesto prima e dopo il brano, se disponibile.
+      lo = Math.max(0, Math.floor(seg.s - 60));
+      hi = Math.min(dur, Math.ceil(seg.e + 60));
     }
     if (hi - lo < 20) hi = Math.min(dur, lo + 120);
     edit.lo = lo; edit.hi = hi;
     var sl = $('pSlider');
     sl.min = lo; sl.max = hi;
     $('pDa').textContent = fmt(lo); $('pA').textContent = fmt(hi);
+    // Banda evidenziata = durata attuale del brano (ciò che si ascolta e si esporta).
+    var b = $('pBanda');
+    if (seg && hi > lo) {
+      var L = Math.max(0, Math.min(100, (seg.s - lo) / (hi - lo) * 100));
+      var R = Math.max(0, Math.min(100, (seg.e - lo) / (hi - lo) * 100));
+      b.style.left = L + '%';
+      b.style.width = Math.max(1, R - L) + '%';
+      $('pMappa').hidden = false;
+    } else { $('pMappa').hidden = true; }
     aggiornaLettore();
   }
   function aggiornaLettore() {
@@ -933,11 +990,18 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
     edit.row = r;
     $('dTitolo').textContent = 'Modifica il brano ' + p2(S.rows.indexOf(r) + 1);
     $('eNome').value = r.name;
+    if (!$('eRating').options.length) {
+      var selR = $('eRating');
+      var vuoto = document.createElement('option'); vuoto.value = ''; vuoto.textContent = '—'; selR.appendChild(vuoto);
+      for (var n = 1; n <= 5; n++) { var o = document.createElement('option'); o.value = String(n); o.textContent = FACCE[n]; selR.appendChild(o); }
+    }
+    $('eRating').value = r.rating || '';
     $('eIni').value = r.start == null ? (r.iniBad || '') : fld(r.start);
     $('eFin').value = r.end == null ? (r.finBad || '') : fld(r.end);
     $('eErr').textContent = '';
     impostaFinestra();
-    try { audio.currentTime = r.start != null ? Math.max(0, r.start + S.shift - 2) : 0; } catch (e) {}
+    var g0 = segDialogo();
+    try { audio.currentTime = g0 ? g0.s : 0; } catch (e) {}
     aggiornaLettore(); aggiornaPlay();
     $('dlg').showModal();
   }
@@ -964,8 +1028,13 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
   $('pP1').addEventListener('click', function () { sposta(1); });
   $('pP5').addEventListener('click', function () { sposta(5); });
   $('pGioca').addEventListener('click', function () {
-    stopAt = null; anteprimaId = null;
-    if (audio.paused) { var p = audio.play(); if (p && p.catch) p.catch(function () {}); } else audio.pause();
+    anteprimaId = null;
+    if (audio.paused) {
+      var g = segDialogo();
+      // Senza toccare niente l'ascolto coincide con l'anteprima della lista e si ferma alla fine del brano.
+      stopAt = (g && audio.currentTime < g.e - 0.02) ? g.e : null;
+      var p = audio.play(); if (p && p.catch) p.catch(function () {});
+    } else audio.pause();
   });
   $('bIni').addEventListener('click', function () {
     $('eIni').value = fld(Math.max(0, round1(audio.currentTime - S.shift)));
@@ -995,12 +1064,20 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
       $('eErr').textContent = 'Scrivi i tempi come ore:minuti:secondi, per esempio 00:03:12.';
       return;
     }
+    var r = edit.row;
+    var maxFin = round1(S.info.dur - S.shift);
+    // La modifica è precisa, ma rientra sempre nei limiti reali dell'audio: niente di negativo, niente oltre la fine vera.
+    if (ini < 0) ini = 0;
+    if (ini > maxFin) ini = maxFin;
+    if (fin != null && fin > maxFin) fin = maxFin;
     if (fin != null && fin <= ini) {
-      $('eErr').textContent = 'La fine deve venire dopo l’inizio.';
+      $('eErr').textContent = 'La fine deve venire dopo l’inizio (l’audio dura ' + fld(maxFin) + ').';
       return;
     }
-    var r = edit.row;
+    // Qualunque modifica dei tempi rende il brano «preciso»: da qui in poi vale esatto, senza cuscinetto, e in lista i tempi vanno sottolineati.
+    if (diverso(ini, r.start) || diverso(fin, r.end)) r.edited = true;
     r.name = $('eNome').value.trim();
+    r.rating = $('eRating').value;
     r.start = ini; r.end = fin; r.iniBad = null; r.finBad = null;
     analizza(); disegna();
     $('dlg').close();
@@ -1111,7 +1188,7 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
       var r = sel[i], blob = costruisci(r);
       occupato(true, 'Preparo il brano ' + (i + 1) + ' di ' + sel.length + '…', i / sel.length);
       return crcBlob(blob).then(function (crc) {
-        entries.push({ name: r.a.file + '.mp3', blob: blob, crc: crc, size: blob.size });
+        entries.push({ name: r.a.fileZip + '.mp3', blob: blob, crc: crc, size: blob.size });
         i++;
         return prossimo();
       });
@@ -1140,12 +1217,12 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
     var o = '# Parziali della prova\n\n';
     if (S.meta.date) o += 'Avvio registrazione: ' + S.meta.date + '\n';
     o += 'Durata: ' + fmt(S.info ? S.info.dur : (S.meta.durata || 0)) + '\n\n';
-    o += '| N | Nome | Inizio | Fine |\n|---|------|--------|------|\n';
+    o += '| N | Nome | Inizio | Fine | Giudizio |\n|---|------|--------|--------|----------|\n';
     S.rows.forEach(function (r, i) {
       var nome = String(r.name || '').replace(/[|\r\n]+/g, ' ').trim();
       var ini = r.start == null ? (r.iniBad || '') : fld(r.start);
       var fin = r.end == null ? (r.finBad || '') : fld(r.end);
-      o += '| ' + (i + 1) + ' | ' + nome + ' | ' + ini + ' | ' + fin + ' |\n';
+      o += '| ' + (i + 1) + ' | ' + nome + ' | ' + ini + ' | ' + fin + ' | ' + (r.rating || '') + ' |\n';
     });
     return o;
   }

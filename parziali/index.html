@@ -77,11 +77,11 @@ body {
   display: grid;
   gap: 10px;
   align-items: stretch;
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   grid-template-areas:
-    "tempo annulla segna segna"
-    "nome nome nome altro"
-    "stato stato stato stato";
+    "tempo segna"
+    "meta meta"
+    "stato stato";
   padding: 12px max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
 }
 .tempo {
@@ -94,21 +94,39 @@ body {
   line-height: 1.1;
   white-space: nowrap;
 }
-#btnAnnulla { grid-area: annulla; }
 #btnAvvia, #btnSegna { grid-area: segna; }
-#nome { grid-area: nome; }
-#btnAltro { grid-area: altro; }
 .stato { grid-area: stato; margin: 0; color: var(--muted); font-size: 0.82rem; line-height: 1.2; }
 
-/* Finestra stretta: l'annulla scende accanto al titolo */
-@media (max-width: 520px) {
-  .app {
-    grid-template-areas:
-      "tempo tempo segna segna"
-      "annulla nome nome altro"
-      "stato stato stato stato";
-  }
+/* Blocco dati del brano: annulla e altro occupano le due righe; canzone sopra, info+giudizio sotto */
+.meta {
+  grid-area: meta;
+  display: grid;
+  gap: 8px;
+  align-items: stretch;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    "annulla canzone canzone altro"
+    "annulla nome rating altro";
 }
+#btnAnnulla { grid-area: annulla; align-self: stretch; }
+#canzone { grid-area: canzone; }
+#nome { grid-area: nome; }
+#rating { grid-area: rating; }
+#btnAltro { grid-area: altro; align-self: stretch; }
+select {
+  font: inherit;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--surface);
+  border: 2px solid var(--line);
+  border-radius: 16px;
+  padding: 8px 12px;
+  min-height: 46px;
+  width: 100%;
+  min-width: 0;
+  cursor: pointer;
+}
+#rating { font-size: 1.3rem; text-align: center; }
 
 button {
   font: inherit;
@@ -238,12 +256,16 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
 
 <main class="app">
   <div id="tempo" class="tempo">00:00:00</div>
-  <button id="btnAnnulla" type="button" hidden aria-label="Annulla ultimo segno">Annulla</button>
   <button id="btnAvvia" class="segna" type="button">Avvia con REC</button>
   <button id="btnSegna" class="segna" type="button" hidden>Inizio brano 1</button>
 
-  <input id="nome" type="text" autocomplete="off" autocapitalize="sentences" placeholder="Titolo del brano" hidden>
-  <button id="btnAltro" type="button">Altro</button>
+  <div class="meta">
+    <button id="btnAnnulla" type="button" hidden aria-label="Annulla ultimo segno">Annulla</button>
+    <select id="canzone" aria-label="Canzone" hidden></select>
+    <input id="nome" type="text" autocomplete="off" autocapitalize="sentences" placeholder="informazioni sul brano" hidden>
+    <select id="rating" aria-label="Giudizio sul brano" hidden></select>
+    <button id="btnAltro" type="button">Altro</button>
+  </div>
 
   <p id="stato" class="stato">Pronto</p>
 </main>
@@ -276,8 +298,14 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
 </section>
 
 <dialog id="dlg">
-  <label>Nome
+  <label>Canzone
+    <select id="dCanzone"></select>
+  </label>
+  <label>Informazioni sul brano
     <input id="dNome" type="text" autocomplete="off">
+  </label>
+  <label>Giudizio
+    <select id="dRating"></select>
   </label>
   <label>Inizio (ore:minuti:secondi)
     <input id="dInizio" type="text" inputmode="numeric" placeholder="00:03:12" autocomplete="off">
@@ -317,9 +345,36 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
   }
   function nuovoStato() {
-    return { startedAt: null, stoppedAt: null, songs: [], pending: '' };
+    return { startedAt: null, stoppedAt: null, songs: [], pending: { song: '', info: '', rating: '' } };
   }
-  var state = leggi() || nuovoStato();
+  // Migrazione dai salvataggi vecchi: brano.name -> info, pending stringa -> oggetto
+  function migra(st) {
+    if (!st) return st;
+    if (typeof st.pending === 'string' || st.pending == null) {
+      st.pending = { song: '', info: (typeof st.pending === 'string' ? st.pending : ''), rating: '' };
+    }
+    if (st.pending.rating === undefined) st.pending.rating = '';
+    (st.songs || []).forEach(function (s) {
+      if (s.song === undefined && s.info === undefined) { s.song = ''; s.info = s.name || ''; }
+      if (s.song === undefined) s.song = '';
+      if (s.info === undefined) s.info = '';
+      if (s.rating === undefined) s.rating = '';
+    });
+    return st;
+  }
+  var state = migra(leggi()) || nuovoStato();
+
+  // ---------- Canzoni e giudizio ----------
+  // Tenere allineata questa tabella con quella della pagina "Taglia la prova".
+  var FACCE = ['', '😖', '🙁', '😐', '🙂', '🤩']; // 1..5
+  function faccia(n) { n = parseInt(n, 10); return (n >= 1 && n <= 5) ? FACCE[n] : ''; }
+  var BRANI = [];
+  function componiNome(song, info) {
+    song = (song || '').trim(); info = (info || '').trim();
+    if (song && info) return song + ' - ' + info;
+    return song || info || '';
+  }
+  function nomeBrano(s) { return componiNome(s.song, s.info); }
 
   // ---------- Utilità ----------
   function $(id) { return document.getElementById(id); }
@@ -394,6 +449,8 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
     $('btnSegna').hidden = !avviata || finita;
     $('btnAnnulla').hidden = !avviata || finita;
     $('nome').hidden = !avviata || finita;
+    $('canzone').hidden = !avviata || finita;
+    $('rating').hidden = !avviata || finita;
     $('btnTermina').hidden = !avviata || finita;
     $('btnEsporta').hidden = !avviata;
     $('btnEsporta').classList.toggle('largo', finita);
@@ -418,7 +475,8 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
       b.className = 'riga' + (s.end == null ? ' aperto' : '');
       var t = document.createElement('span');
       t.className = 'titolo';
-      t.textContent = (i + 1) + '. ' + (s.name || 'Senza nome');
+      var f = faccia(s.rating);
+      t.textContent = (i + 1) + '. ' + (nomeBrano(s) || 'Senza nome') + (f ? '  ' + f : '');
       var d = document.createElement('span');
       d.className = 'tempi';
       d.textContent = s.end == null
@@ -434,7 +492,10 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
   }
   function disegnaNome() {
     var ap = aperto();
-    $('nome').value = ap ? ap.name : (state.pending || '');
+    var dati = ap || state.pending || { song: '', info: '', rating: '' };
+    $('canzone').value = dati.song || '';
+    $('nome').value = dati.info || '';
+    $('rating').value = dati.rating || '';
   }
 
   // ---------- Segnare ----------
@@ -449,8 +510,9 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
     if (ap) {
       ap.end = t;
     } else {
-      state.songs.push({ id: ora, name: state.pending || '', start: t, end: null });
-      state.pending = '';
+      var p = state.pending || { song: '', info: '', rating: '' };
+      state.songs.push({ id: ora, song: p.song || '', info: p.info || '', rating: p.rating || '', start: t, end: null });
+      state.pending = { song: '', info: '', rating: '' };
     }
     salva(); render(); disegnaNome(); vibra();
   }
@@ -462,17 +524,20 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
   });
   $('btnSegna').addEventListener('click', function (e) { segna(); e.currentTarget.blur(); });
 
-  $('nome').addEventListener('input', function (e) {
+  function aggiornaCampo(campo, valore) {
     var ap = aperto();
-    if (ap) ap.name = e.target.value; else state.pending = e.target.value;
+    (ap || state.pending)[campo] = valore;
     salva();
     if (ap) render();
-  });
+  }
+  $('canzone').addEventListener('change', function (e) { aggiornaCampo('song', e.target.value); });
+  $('nome').addEventListener('input', function (e) { aggiornaCampo('info', e.target.value); });
+  $('rating').addEventListener('change', function (e) { aggiornaCampo('rating', e.target.value); });
 
   $('btnAnnulla').addEventListener('click', function () {
     var ap = aperto();
     if (ap) {
-      state.pending = ap.name;
+      state.pending = { song: ap.song || '', info: ap.info || '', rating: ap.rating || '' };
       state.songs.pop();
     } else if (state.songs.length) {
       state.songs[state.songs.length - 1].end = null;
@@ -500,7 +565,9 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
   function apriModifica(i) {
     indiceModifica = i;
     var s = state.songs[i];
-    $('dNome').value = s.name || '';
+    $('dCanzone').value = s.song || '';
+    $('dNome').value = s.info || '';
+    $('dRating').value = s.rating || '';
     $('dInizio').value = fmt(s.start);
     $('dFine').value = s.end == null ? '' : fmt(s.end);
     $('dErrore').textContent = '';
@@ -520,7 +587,9 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
       return;
     }
     var s = state.songs[indiceModifica];
-    s.name = $('dNome').value.trim();
+    s.song = $('dCanzone').value;
+    s.info = $('dNome').value.trim();
+    s.rating = $('dRating').value;
     s.start = ini;
     s.end = fin;
     salva(); render(); disegnaNome();
@@ -547,9 +616,9 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
     var o = '# Parziali della prova\n\n';
     o += 'Avvio registrazione: ' + ts + '\n';
     o += 'Durata: ' + fmt(elapsed()) + '\n\n';
-    o += '| N | Nome | Inizio | Fine |\n|---|------|--------|------|\n';
+    o += '| N | Nome | Inizio | Fine | Giudizio |\n|---|------|--------|--------|----------|\n';
     state.songs.forEach(function (s, i) {
-      o += '| ' + (i + 1) + ' | ' + pulisci(s.name) + ' | ' + fmt(s.start) + ' | ' + (s.end == null ? '' : fmt(s.end)) + ' |\n';
+      o += '| ' + (i + 1) + ' | ' + pulisci(nomeBrano(s)) + ' | ' + fmt(s.start) + ' | ' + (s.end == null ? '' : fmt(s.end)) + ' | ' + (s.rating || '') + ' |\n';
     });
     return o;
   }
@@ -597,7 +666,7 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
   var TASTI = { 'Enter': 1, ' ': 1, 'PageDown': 1, 'PageUp': 1, 'ArrowRight': 1, 'ArrowLeft': 1, 'ArrowDown': 1, 'ArrowUp': 1, 'MediaTrackNext': 1 };
   document.addEventListener('keydown', function (e) {
     var t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.closest('dialog'))) return;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.closest('dialog'))) return;
     if (t && t.tagName === 'BUTTON' && (e.key === 'Enter' || e.key === ' ')) return;
     if (!$('pannello').hidden) return;
     if (!TASTI[e.key]) return;
@@ -611,6 +680,34 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
   setInterval(tick, 250);
   document.addEventListener('visibilitychange', function () { tick(); tieniAcceso(); });
   window.addEventListener('pageshow', function () { tick(); tieniAcceso(); });
+
+  // ---------- Popolamento menu ----------
+  function opzioniRating(sel) {
+    sel.innerHTML = '';
+    var v = document.createElement('option'); v.value = ''; v.textContent = '—'; sel.appendChild(v);
+    for (var n = 1; n <= 5; n++) {
+      var o = document.createElement('option'); o.value = String(n); o.textContent = FACCE[n]; sel.appendChild(o);
+    }
+  }
+  function opzioniCanzone(sel, lista) {
+    var cur = sel.value;
+    sel.innerHTML = '';
+    var v = document.createElement('option'); v.value = ''; v.textContent = '—'; sel.appendChild(v);
+    lista.forEach(function (nome) {
+      var o = document.createElement('option'); o.value = nome; o.textContent = nome; sel.appendChild(o);
+    });
+    sel.value = cur;
+  }
+  opzioniRating($('rating')); opzioniRating($('dRating'));
+  opzioniCanzone($('canzone'), BRANI); opzioniCanzone($('dCanzone'), BRANI);
+  // La lista canzoni vive in brani.md, accanto alla pagina: un titolo per riga.
+  fetch('brani.md').then(function (r) { return r.ok ? r.text() : ''; }).then(function (txt) {
+    BRANI = txt.split(/\r?\n/)
+      .map(function (s) { return s.replace(/^\s*-\s*/, '').replace(/,\s*$/, '').trim(); })
+      .filter(function (s) { return s && s.charAt(0) !== '#'; });
+    opzioniCanzone($('canzone'), BRANI); opzioniCanzone($('dCanzone'), BRANI);
+    disegnaNome();
+  }).catch(function () {});
 
   // ---------- Avvio pagina ----------
   render(); disegnaNome(); tick(); tieniAcceso();
