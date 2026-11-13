@@ -540,7 +540,7 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
       var t = document.createElement('span');
       t.className = 'titolo';
       var f = faccia(s.rating);
-      t.textContent = (i + 1) + '. ' + (nomeBrano(s) || 'Senza nome') + (f ? '  ' + f : '');
+      t.textContent = (i + 1) + '. ' + (nomeBrano(s) || 'Senza titolo ' + (i + 1)) + (f ? '  ' + f : '');
       var d = document.createElement('span');
       d.className = 'tempi';
       d.textContent = s.end == null
