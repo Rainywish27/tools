@@ -198,7 +198,13 @@ label.zona.pieno svg { fill: var(--turchese-ombra); }
 .comandi { display: flex; flex-wrap: wrap; gap: 8px; }
 .comandi button { min-height: 42px; }
 details.regola { background: var(--surface); border: 2px solid var(--line); border-radius: 16px; padding: 0 14px; }
-details.regola summary { min-height: 46px; display: flex; align-items: center; font-weight: 700; cursor: pointer; }
+details.regola summary { min-height: 46px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 700; cursor: pointer; list-style: none; }
+details.regola summary::-webkit-details-marker { display: none; }
+.regola-val { color: var(--muted); font-weight: 600; }
+.regola-ic { flex: none; display: grid; place-items: center; color: var(--muted); }
+.regola-ic svg { width: 22px; height: 22px; }
+.regola-tit { font-size: 1.05rem; font-weight: 800; margin: 6px 0 2px; }
+.regola-intro { margin: 0 0 10px; }
 details.regola .campi { display: grid; grid-template-columns: 1fr; gap: 10px; padding: 4px 0 14px; }
 .sposta-riga { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; }
 .sposta-riga .oro { color: var(--muted); display: grid; place-items: center; }
@@ -371,19 +377,31 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
     <button id="btnNessuno" type="button">Deseleziona tutti</button>
   </div>
 
-  <details class="regola">
-    <summary>Regolazioni dei tagli</summary>
+  <h2 class="regola-tit">Regolazioni dei tagli</h2>
+  <p class="nota regola-intro">Ogni brano è tagliato con 2 secondi di margine prima e dopo. Se lo correggi a mano con la matita, valgono esatti l’inizio e la fine che scrivi tu, e in lista restano sottolineati.</p>
+
+  <details class="regola" id="regolaSposta">
+    <summary>
+      <span class="regola-sum">Sposta tutti i tagli<span id="rSpostaVal" class="regola-val"></span></span>
+      <span class="regola-ic" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6.3 9A6.4 6.4 0 0 1 17.6 7.9"/>
+          <path d="M17.7 14.8A6.4 6.4 0 0 1 6.4 16.1"/>
+          <path d="M17.9 4.7 17.6 7.9 14.4 7.5"/>
+          <path d="M6.1 19.3 6.4 16.1 9.6 16.5"/>
+          <path d="M12 9.4V12l2 1.2"/>
+        </svg>
+      </span>
+    </summary>
     <div class="campi">
-      <p class="nota">Ogni brano è tagliato con 2 secondi di margine prima e dopo. Se lo correggi a mano con la matita, valgono esatti l’inizio e la fine che scrivi tu, e in lista restano sottolineati.</p>
-      <label>Sposta tutti i tagli (secondi)
-        <div class="sposta-riga">
-          <span class="oro" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm-1 3v6l5 3 .9-1.5-4.9-2.9V7z"/></svg>
-          </span>
-          <input id="rSposta" type="number" inputmode="decimal" min="-120" max="120" step="0.5" value="0">
-        </div>
-      </label>
       <p class="nota">Serve se tutti i brani sono in anticipo o in ritardo: positivo = più tardi.</p>
+      <label for="rSposta">Secondi</label>
+      <div class="sposta-riga">
+        <span class="oro" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm-1 3v6l5 3 .9-1.5-4.9-2.9V7z"/></svg>
+        </span>
+        <input id="rSposta" type="number" inputmode="decimal" min="-120" max="120" step="0.5" value="0">
+      </div>
     </div>
   </details>
 
@@ -900,7 +918,13 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
     var sh = parseFloat($('rSposta').value);
     S.shift = isFinite(sh) ? Math.max(-120, Math.min(120, sh)) : 0;
   }
-  $('rSposta').addEventListener('change', function () { leggiRegolazioni(); analizza(); disegna(); });
+  function aggiornaEtichettaSposta() {
+    var det = $('regolaSposta'), v = parseFloat($('rSposta').value);
+    var mostra = det && !det.open && isFinite(v) && v !== 0;
+    $('rSpostaVal').textContent = mostra ? ' (' + (v > 0 ? '+' : '') + round1(v) + ' s)' : '';
+  }
+  $('rSposta').addEventListener('change', function () { leggiRegolazioni(); aggiornaEtichettaSposta(); analizza(); disegna(); });
+  $('regolaSposta').addEventListener('toggle', aggiornaEtichettaSposta);
 
   /* ---------- Creazione dei tagli ---------- */
   $('btnCrea').addEventListener('click', function () {
