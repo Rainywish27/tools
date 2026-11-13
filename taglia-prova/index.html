@@ -466,6 +466,16 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
   </div>
 </dialog>
 
+<!-- ====== Conferma uscita al menu ====== -->
+<dialog id="dUscita" aria-labelledby="dUscitaT">
+  <h2 id="dUscitaT" tabindex="-1" autofocus="">Tornare al menu?</h2>
+  <p>Il lavoro su questa prova (tagli e giudizi non ancora esportati) andrà perso.</p>
+  <div class="bottoni">
+    <button id="uEsci" type="button" class="pieno">Esci senza salvare</button>
+    <button id="uResta" type="button">Resta qui</button>
+  </div>
+</dialog>
+
 <script>
 (function () {
   'use strict';
@@ -930,12 +940,17 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
   });
   $('btnIndietro').addEventListener('click', function () { audio.pause(); mostra('sCarica'); });
 
-  // Uscire dal menu abbandona il lavoro in corso (audio e tagli vivono solo in memoria): chiedi conferma.
+  // Uscire dal menu abbandona il lavoro in corso (audio e tagli vivono solo in memoria): chiedi conferma con un dialog.
   (function () {
     var m = document.querySelector('.al-menu');
-    if (m) m.addEventListener('click', function (e) {
-      if (S.audioFile && !confirm('Vuoi tornare al menu? Il lavoro su questa prova (tagli e giudizi non ancora esportati) andrà perso.')) e.preventDefault();
+    if (!m) return;
+    m.addEventListener('click', function (e) {
+      if (!S.audioFile) return;            // niente di caricato: esci subito
+      e.preventDefault();
+      $('dUscita').showModal();
     });
+    $('uResta').addEventListener('click', function () { $('dUscita').close(); });
+    $('uEsci').addEventListener('click', function () { window.location.href = m.getAttribute('href') || '../'; });
   })();
 
   /* ============================================================
@@ -1067,18 +1082,23 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
       .then(function (ab) { return ac.decodeAudioData(ab); })
       .then(function (buf) {
         if (key !== ondaKey) return;           // la finestra è cambiata nel frattempo
-        ondaPicchi = picchi(buf, 900); disegnaOnda();
+        ondaPicchi = picchi(buf, 160); disegnaOnda(); // poche barre: forma d'insieme, non precisa
       })
       .catch(function () { if (key === ondaKey) { ondaPicchi = null; disegnaOnda(); } });
   }
   function picchi(buf, n) {
-    var ch = buf.getChannelData(0), N = ch.length, out = new Float32Array(n);
+    var ch = buf.getChannelData(0), N = ch.length, out = new Float32Array(n), max = 0;
     for (var b = 0; b < n; b++) {
-      var i0 = Math.floor(b * N / n), i1 = Math.floor((b + 1) * N / n), m = 0;
-      if (i1 <= i0) i1 = i0 + 1;
-      for (var i = i0; i < i1 && i < N; i++) { var v = ch[i] < 0 ? -ch[i] : ch[i]; if (v > m) m = v; }
-      out[b] = m;
+      var i0 = Math.floor(b * N / n), i1 = Math.floor((b + 1) * N / n); if (i1 <= i0) i1 = i0 + 1;
+      var s = 0, c = 0;
+      for (var i = i0; i < i1 && i < N; i++) { var v = ch[i]; s += v * v; c++; }
+      var r = c ? Math.sqrt(s / c) : 0; // energia (RMS): dove si canta vs quasi silenzio
+      out[b] = r; if (r > max) max = r;
     }
+    // Normalizza alla sezione aperta: il punto più forte riempie l'altezza,
+    // così anche i passaggi a basso volume restano leggibili a colpo d'occhio.
+    var k = max > 0.0008 ? 1 / max : 0;
+    for (var j = 0; j < n; j++) { var y = out[j] * k; out[j] = y > 1 ? 1 : y; }
     return out;
   }
   function disegnaOnda() {
@@ -1094,18 +1114,25 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
     var lo = edit.lo, hi = edit.hi, seg = edit.seg, mid = H / 2;
     if (!(hi > lo)) return;
     function inBrano(t) { return seg && t >= seg.s && t <= seg.e; }
-    for (var x = 0; x < W; x++) {
-      var t = lo + (x + 0.5) / W * (hi - lo), dentro = inBrano(t);
-      g.fillStyle = dentro ? cCyan : cGrey;
-      var h;
-      if (ondaPicchi) {
-        var bi = Math.floor(x / W * ondaPicchi.length); if (bi >= ondaPicchi.length) bi = ondaPicchi.length - 1;
-        h = Math.max(1, ondaPicchi[bi] * (H - 4));
-        g.globalAlpha = dentro ? 1 : 0.45;
-      } else { h = 2; g.globalAlpha = dentro ? 0.9 : 0.4; }
-      g.fillRect(x, mid - h / 2, 1, h);
+    if (ondaPicchi) {
+      var n = ondaPicchi.length, bw = W / n;
+      for (var b = 0; b < n; b++) {
+        var t = lo + (b + 0.5) / n * (hi - lo), dentro = inBrano(t);
+        var h = Math.max(1.5, ondaPicchi[b] * (H - 4));
+        g.fillStyle = dentro ? cCyan : cGrey;
+        g.globalAlpha = dentro ? 1 : 0.5;
+        g.fillRect(b * bw, mid - h / 2, Math.max(1, bw - 0.6), h);
+      }
+      g.globalAlpha = 1;
+    } else {
+      // ripiego: linea piatta che distingue brano (azzurro) e cuscinetto (grigio)
+      for (var x = 0; x < W; x++) {
+        var tt = lo + (x + 0.5) / W * (hi - lo), d2 = inBrano(tt);
+        g.fillStyle = d2 ? cCyan : cGrey; g.globalAlpha = d2 ? 0.9 : 0.4;
+        g.fillRect(x, mid - 1, 1, 2);
+      }
+      g.globalAlpha = 1;
     }
-    g.globalAlpha = 1;
   }
   function posizionaTesta(t) {
     if (t == null) t = audio.currentTime || 0;
