@@ -179,6 +179,7 @@ button.pieno { background: var(--notte); color: var(--giallo); border-color: var
   button.pieno { background: var(--giallo); color: var(--notte); border-color: var(--giallo); }
 }
 button.pericolo { color: var(--danger); border-color: var(--danger); }
+button.giallo { background: var(--giallo); color: var(--notte); border-color: var(--giallo); }
 
 /* Il pulsante principale è una caramella gommosa: bordo spesso sotto e riflesso in alto */
 .segna {
@@ -321,8 +322,7 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
   <ol id="lista"></ol>
 
   <div id="azioni" class="azioni">
-    <button id="btnEsporta" type="button" class="pieno">Esporta i tempi</button>
-    <button id="btnTermina" type="button">Termina registrazione</button>
+    <button id="btnTermina" type="button" class="giallo largo">Termina registrazione ed esporta i tempi</button>
   </div>
 
   <div id="export" hidden style="display:grid;gap:10px">
@@ -516,8 +516,6 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
     $('canzoneBox').hidden = !avviata || finita;
     $('rating').hidden = !avviata || finita;
     $('btnTermina').hidden = !avviata || finita;
-    $('btnEsporta').hidden = !avviata;
-    $('btnEsporta').classList.toggle('largo', finita);
     $('avvisoSalvataggio').hidden = storageOk;
 
     var ap = aperto();
@@ -691,6 +689,7 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
     if (ap) ap.end = t;
     state.stoppedAt = Date.now();
     salva(); render(); apriExport(); apriPannello();
+    $('export').scrollIntoView({ behavior: 'smooth', block: 'start' });
     if (lock) { try { lock.release(); } catch (e) {} }
   });
 
@@ -761,10 +760,6 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
     $('esito').textContent = '';
     $('export').hidden = false;
   }
-  $('btnEsporta').addEventListener('click', function () {
-    apriExport();
-    $('export').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
   $('btnCopia').addEventListener('click', function () {
     var t = $('testo');
     var fatto = function () { $('esito').textContent = 'Testo copiato.'; };
