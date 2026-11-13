@@ -275,6 +275,7 @@ dialog {
 dialog::backdrop { background: rgba(0, 32, 66, 0.62); }
 dialog label { display: grid; gap: 4px; font-weight: 700; margin-bottom: 10px; }
 dialog .bottoni { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+#dUscita p { margin: 4px 0 20px; line-height: 1.45; }
 dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-size: 0.88rem; font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -359,6 +360,16 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
     <button id="dSalva" type="button" class="pieno">Salva</button>
     <button id="dAnnulla" type="button">Chiudi</button>
     <button id="dElimina" type="button" class="pericolo">Elimina brano</button>
+  </div>
+</dialog>
+
+<!-- ====== Conferma uscita al menu ====== -->
+<dialog id="dUscita" aria-labelledby="dUscitaT">
+  <h2 id="dUscitaT" tabindex="-1" autofocus="">Tornare al menu?</h2>
+  <p>C’è un’acquisizione in corso: se esci, il cronometro si interrompe e non potrai riprenderlo.</p>
+  <div class="bottoni">
+    <button id="uEsci" type="button" class="pieno">Esci comunque</button>
+    <button id="uResta" type="button">Resta qui</button>
   </div>
 </dialog>
 
@@ -822,6 +833,19 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
     sel.value = cur;
   }
   opzioniRating($('rating')); opzioniRating($('dRating'));
+
+  // Uscire col cronometro in corso interrompe l'acquisizione: chiedi conferma con un dialog.
+  (function () {
+    var m = document.querySelector('.al-menu');
+    if (!m) return;
+    m.addEventListener('click', function (e) {
+      if (!(state.startedAt && state.stoppedAt == null)) return; // nessuna acquisizione in corso
+      e.preventDefault();
+      $('dUscita').showModal();
+    });
+    $('uResta').addEventListener('click', function () { $('dUscita').close(); });
+    $('uEsci').addEventListener('click', function () { window.location.href = m.getAttribute('href') || '../'; });
+  })();
   opzioniCanzone($('dCanzone'), BRANI);
   // La lista canzoni vive in brani.md, accanto alla pagina: un titolo per riga.
   fetch('brani.md').then(function (r) { return r.ok ? r.text() : ''; }).then(function (txt) {
