@@ -303,6 +303,12 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
 .tempi .mod { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px; }
 .mappa { position: relative; height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--line) 22%, transparent); margin-top: 4px; overflow: hidden; }
 .banda { position: absolute; top: 0; bottom: 0; left: 0; width: 0; background: var(--turchese); border-radius: 999px; }
+.mappa-tot { margin: 2px 0 10px; }
+.onda { position: relative; height: 40px; margin: 2px 0; touch-action: none; cursor: pointer; }
+.onda:focus-visible { outline: 3px solid var(--giallo); outline-offset: 3px; border-radius: 12px; }
+.onda-cv { display: block; width: 100%; height: 100%; border-radius: 12px; background: color-mix(in srgb, var(--line) 14%, transparent); }
+.onda-testa { position: absolute; top: -5px; bottom: -5px; left: 0; width: 2px; background: var(--fucsia); transform: translateX(-1px); pointer-events: none; }
+.onda-pallino { position: absolute; top: -8px; left: 50%; width: 16px; height: 16px; border-radius: 999px; background: var(--fucsia); transform: translateX(-50%); box-shadow: 0 1px 4px rgba(0, 0, 0, .4); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -420,6 +426,9 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
       <select id="eRating"></select>
     </label>
   </div>
+  <div id="pTotale" class="mappa mappa-tot" aria-hidden="true" title="Posizione del brano nella traccia">
+    <div id="pBandaTot" class="banda"></div>
+  </div>
   <div class="due">
     <label class="campo">Inizio
       <input id="eIni" type="text" inputmode="decimal" placeholder="00:03:12" autocomplete="off">
@@ -431,9 +440,10 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
 
   <div class="player" role="group" aria-label="Riascolta e scegli i punti di taglio">
     <div id="pTempo" class="tempo">00:00:00.0</div>
-    <input id="pSlider" type="range" min="0" max="100" step="0.1" value="0" aria-label="Posizione nell’audio">
-    <div id="pMappa" class="mappa" aria-hidden="true"><div id="pBanda" class="banda"></div></div>
-    <div class="estremi"><span id="pDa">00:00:00</span><span id="pA">00:00:00</span></div>
+    <div id="pOnda" class="onda" role="slider" tabindex="0" aria-label="Posizione nell’audio" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <canvas id="pOndaCv" class="onda-cv"></canvas>
+      <div id="pTesta" class="onda-testa"><span class="onda-pallino"></span></div>
+    </div>
     <div class="trasporto">
       <button id="pM5" type="button" aria-label="Indietro di 5 secondi">−5 s</button>
       <button id="pM1" type="button" aria-label="Indietro di 1 secondo">−1 s</button>
@@ -494,19 +504,19 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
   function mb(bytes) { return (bytes / 1048576).toFixed(bytes < 10485760 ? 1 : 0) + ' MB'; }
   function round1(x) { return Math.round(x * 10) / 10; }
   // ---------- Giudizio: numero <-> faccina (tenere allineata con la pagina "Parziali") ----------
-  var FACCE = ['', '😖', '🙁', '😐', '🙂', '🤩']; // 1..5
+  var FACCE = ['', '😖', '🙁', '🙂', '🤩']; // 1..4 (niente faccina neutra)
   var SCARTO = '🚫'; // "da scartare": arriva da Parziali come X nel file .md
   function faccia(v) {
     v = String(v == null ? '' : v).trim().toUpperCase();
     if (v === 'X') return SCARTO;
     var n = parseInt(v, 10);
-    return (n >= 1 && n <= 5) ? FACCE[n] : '';
+    return (n >= 1) ? FACCE[Math.min(n, 4)] : ''; // legacy 5 → massimo (4)
   }
   function normRating(s) {
     var v = String(s || '').trim().toUpperCase();
     if (v === 'X') return 'X';
     var n = parseInt(v, 10);
-    return (n >= 1 && n <= 5) ? String(n) : '';
+    return (n >= 1) ? String(Math.min(n, 4)) : ''; // legacy 5 → 4
   }
   // Cuscinetto fisso (secondi) prima e dopo ogni brano NON modificato a mano: vale sia per l'ascolto in anteprima sia per il taglio esportato.
   var CUSC = 2;
@@ -920,6 +930,14 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
   });
   $('btnIndietro').addEventListener('click', function () { audio.pause(); mostra('sCarica'); });
 
+  // Uscire dal menu abbandona il lavoro in corso (audio e tagli vivono solo in memoria): chiedi conferma.
+  (function () {
+    var m = document.querySelector('.al-menu');
+    if (m) m.addEventListener('click', function (e) {
+      if (S.audioFile && !confirm('Vuoi tornare al menu? Il lavoro su questa prova (tagli e giudizi non ancora esportati) andrà perso.')) e.preventDefault();
+    });
+  })();
+
   /* ============================================================
      Ascolto: anteprima di un brano e lettore della modifica
      ============================================================ */
@@ -980,25 +998,24 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
       hi = Math.min(dur, Math.ceil(seg.e + 60));
     }
     if (hi - lo < 20) hi = Math.min(dur, lo + 120);
-    edit.lo = lo; edit.hi = hi;
-    var sl = $('pSlider');
-    sl.min = lo; sl.max = hi;
-    $('pDa').textContent = fmt(lo); $('pA').textContent = fmt(hi);
-    // Banda evidenziata = durata attuale del brano (ciò che si ascolta e si esporta).
-    var b = $('pBanda');
-    if (seg && hi > lo) {
-      var L = Math.max(0, Math.min(100, (seg.s - lo) / (hi - lo) * 100));
-      var R = Math.max(0, Math.min(100, (seg.e - lo) / (hi - lo) * 100));
-      b.style.left = L + '%';
-      b.style.width = Math.max(1, R - L) + '%';
-      $('pMappa').hidden = false;
-    } else { $('pMappa').hidden = true; }
+    edit.lo = lo; edit.hi = hi; edit.seg = seg;
+    // Barra in alto: dove sta il brano rispetto all'intera traccia.
+    var bt = $('pBandaTot');
+    if (seg && dur > 0) {
+      var Lt = Math.max(0, Math.min(100, seg.s / dur * 100));
+      var Rt = Math.max(0, Math.min(100, seg.e / dur * 100));
+      bt.style.left = Lt + '%';
+      bt.style.width = Math.max(1, Rt - Lt) + '%';
+      $('pTotale').hidden = false;
+    } else { $('pTotale').hidden = true; }
+    // Forma d'onda della finestra: azzurro = brano in uso, grigio = cuscinetto.
+    caricaOnda(lo, hi);
     aggiornaLettore();
   }
   function aggiornaLettore() {
     var t = audio.currentTime || 0;
     $('pTempo').textContent = fmt(t, true);
-    if (!edit.trascina) $('pSlider').value = Math.max(edit.lo, Math.min(edit.hi, t));
+    if (!edit.trascina) posizionaTesta(t);
   }
   function apriModifica(r) {
     audio.pause(); stopAt = null;
@@ -1009,30 +1026,120 @@ dialog .errore { margin: 0 0 8px; font-size: 0.9rem; }
       var selR = $('eRating');
       var vuoto = document.createElement('option'); vuoto.value = ''; vuoto.textContent = '—'; selR.appendChild(vuoto);
       var ox = document.createElement('option'); ox.value = 'X'; ox.textContent = SCARTO; selR.appendChild(ox);
-      for (var n = 1; n <= 5; n++) { var o = document.createElement('option'); o.value = String(n); o.textContent = FACCE[n]; selR.appendChild(o); }
+      for (var n = 1; n <= 4; n++) { var o = document.createElement('option'); o.value = String(n); o.textContent = FACCE[n]; selR.appendChild(o); }
     }
     $('eRating').value = r.rating || '';
     $('eIni').value = r.start == null ? (r.iniBad || '') : fld(r.start);
     $('eFin').value = r.end == null ? (r.finBad || '') : fld(r.end);
     $('eErr').textContent = '';
+    $('dlg').showModal();
     impostaFinestra();
     var g0 = segDialogo();
     try { audio.currentTime = g0 ? g0.s : 0; } catch (e) {}
     aggiornaLettore(); aggiornaPlay();
-    $('dlg').showModal();
   }
   $('eIni').addEventListener('change', impostaFinestra);
   $('eFin').addEventListener('change', impostaFinestra);
 
-  var sl = $('pSlider');
-  sl.addEventListener('pointerdown', function () { edit.trascina = true; });
-  sl.addEventListener('pointerup', function () { edit.trascina = false; });
-  sl.addEventListener('input', function () {
+  // ---------- Forma d'onda della finestra + cursore ----------
+  var onda = $('pOnda'), ondaCv = $('pOndaCv');
+  var AC = null, ondaKey = '', ondaPicchi = null;
+  function ctx() {
+    if (!AC) { var C = window.AudioContext || window.webkitAudioContext; AC = C ? new C() : null; }
+    return AC;
+  }
+  function finestraFrame(lo, hi) {
+    var inf = S.info; if (!inf || !inf.offs) return null;
+    var f0 = Math.max(0, Math.min(inf.frames, Math.floor(lo * inf.sr / inf.spf)));
+    var f1 = Math.max(f0 + 1, Math.min(inf.frames, Math.ceil(hi * inf.sr / inf.spf)));
+    return { f0: f0, f1: f1 };
+  }
+  // Decodifica solo la finestra visibile (pochi minuti), non tutto il file: niente carico di memoria sui brani lunghi.
+  function caricaOnda(lo, hi) {
+    var ff = finestraFrame(lo, hi);
+    if (!ff || !S.audioFile) { ondaKey = ''; ondaPicchi = null; disegnaOnda(); return; }
+    var key = ff.f0 + '-' + ff.f1;
+    if (key === ondaKey) { disegnaOnda(); return; }
+    ondaKey = key; ondaPicchi = null; disegnaOnda(); // intanto mostra il ripiego
+    var ac = ctx(); if (!ac) return;
+    var inf = S.info;
+    S.audioFile.slice(inf.offs[ff.f0], inf.offs[ff.f1]).arrayBuffer()
+      .then(function (ab) { return ac.decodeAudioData(ab); })
+      .then(function (buf) {
+        if (key !== ondaKey) return;           // la finestra è cambiata nel frattempo
+        ondaPicchi = picchi(buf, 900); disegnaOnda();
+      })
+      .catch(function () { if (key === ondaKey) { ondaPicchi = null; disegnaOnda(); } });
+  }
+  function picchi(buf, n) {
+    var ch = buf.getChannelData(0), N = ch.length, out = new Float32Array(n);
+    for (var b = 0; b < n; b++) {
+      var i0 = Math.floor(b * N / n), i1 = Math.floor((b + 1) * N / n), m = 0;
+      if (i1 <= i0) i1 = i0 + 1;
+      for (var i = i0; i < i1 && i < N; i++) { var v = ch[i] < 0 ? -ch[i] : ch[i]; if (v > m) m = v; }
+      out[b] = m;
+    }
+    return out;
+  }
+  function disegnaOnda() {
+    var cv = ondaCv; if (!cv) return;
+    var W = onda.clientWidth || 320, H = onda.clientHeight || 40;
+    var dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    var g = cv.getContext('2d'); if (!g) return;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    var cs = getComputedStyle(document.documentElement);
+    var cCyan = (cs.getPropertyValue('--turchese') || '#20c9c9').trim();
+    var cGrey = (cs.getPropertyValue('--muted') || '#8899aa').trim();
+    var lo = edit.lo, hi = edit.hi, seg = edit.seg, mid = H / 2;
+    if (!(hi > lo)) return;
+    function inBrano(t) { return seg && t >= seg.s && t <= seg.e; }
+    for (var x = 0; x < W; x++) {
+      var t = lo + (x + 0.5) / W * (hi - lo), dentro = inBrano(t);
+      g.fillStyle = dentro ? cCyan : cGrey;
+      var h;
+      if (ondaPicchi) {
+        var bi = Math.floor(x / W * ondaPicchi.length); if (bi >= ondaPicchi.length) bi = ondaPicchi.length - 1;
+        h = Math.max(1, ondaPicchi[bi] * (H - 4));
+        g.globalAlpha = dentro ? 1 : 0.45;
+      } else { h = 2; g.globalAlpha = dentro ? 0.9 : 0.4; }
+      g.fillRect(x, mid - h / 2, 1, h);
+    }
+    g.globalAlpha = 1;
+  }
+  function posizionaTesta(t) {
+    if (t == null) t = audio.currentTime || 0;
+    var lo = edit.lo, hi = edit.hi; if (!(hi > lo)) return;
+    var f = Math.max(0, Math.min(1, (t - lo) / (hi - lo)));
+    var el = $('pTesta'); if (el) el.style.left = (f * 100) + '%';
+    onda.setAttribute('aria-valuenow', Math.round(f * 100));
+    onda.setAttribute('aria-valuetext', fmt(t, true));
+  }
+  function tempoDaX(cx) {
+    var r = onda.getBoundingClientRect();
+    var f = r.width ? (cx - r.left) / r.width : 0; f = Math.max(0, Math.min(1, f));
+    return edit.lo + f * (edit.hi - edit.lo);
+  }
+  function scorri(t) {
     stopAt = null;
-    try { audio.currentTime = parseFloat(sl.value); } catch (e) {}
-    $('pTempo').textContent = fmt(parseFloat(sl.value), true);
+    try { audio.currentTime = t; } catch (e) {}
+    $('pTempo').textContent = fmt(t, true);
+    posizionaTesta(t);
+  }
+  onda.addEventListener('pointerdown', function (e) {
+    edit.trascina = true;
+    try { onda.setPointerCapture(e.pointerId); } catch (x) {}
+    scorri(tempoDaX(e.clientX)); e.preventDefault();
   });
-  sl.addEventListener('change', function () { edit.trascina = false; });
+  onda.addEventListener('pointermove', function (e) { if (edit.trascina) scorri(tempoDaX(e.clientX)); });
+  onda.addEventListener('pointerup', function () { edit.trascina = false; });
+  onda.addEventListener('pointercancel', function () { edit.trascina = false; });
+  onda.addEventListener('keydown', function (e) {
+    var s = e.shiftKey ? 5 : 1;
+    if (e.key === 'ArrowLeft') { sposta(-s); e.preventDefault(); }
+    else if (e.key === 'ArrowRight') { sposta(s); e.preventDefault(); }
+  });
+  window.addEventListener('resize', function () { if ($('dlg').open) disegnaOnda(); });
 
   function sposta(d) {
     stopAt = null;

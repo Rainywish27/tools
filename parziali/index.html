@@ -407,12 +407,14 @@ dialog .errore { color: var(--danger); margin: 0 0 8px; min-height: 1.1em; font-
 
   // ---------- Canzoni e giudizio ----------
   // Tenere allineata questa tabella con quella della pagina "Taglia la prova".
-  // In acquisizione il giudizio ha 3 scelte. Nel file .md diventano valori che l'altro
-  // strumento legge già: scarto → X, medio-basso → 2, ottimo → 5.
+  // 5 giudizi assegnabili: scarto (X) + 4 voti. Nel file .md diventano valori che l'altro
+  // strumento legge con la stessa faccina: scarto → X, poi 1..4 (4 = massimo).
   var SCELTE = [
     { val: 'X', faccia: '🚫', nome: 'Da scartare' },
-    { val: '2', faccia: '😌', nome: 'Medio-basso' },
-    { val: '5', faccia: '🤩', nome: 'Ottimo' }
+    { val: '1', faccia: '😖', nome: 'Scarso' },
+    { val: '2', faccia: '🙁', nome: 'Mediocre' },
+    { val: '3', faccia: '🙂', nome: 'Buono' },
+    { val: '4', faccia: '🤩', nome: 'Ottimo' }
   ];
   function faccia(v) {
     v = String(v == null ? '' : v).trim().toUpperCase();
